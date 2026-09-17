@@ -1,0 +1,6 @@
+{
+  "name": "Absensi Istirahat Informa",
+  "description": "Sistem Absensi Istirahat Karyawan Back Office Informa Alam Sutera dengan timer, alarm suara otomatis, dan monitoring real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

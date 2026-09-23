@@ -13,6 +13,9 @@ const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = path.resolve(__dirname, 'data_store');
 const DATA_FILE = path.resolve(DATA_DIR, 'informa_state.json');
 
+const CLOUD_SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0ccda16b27682';
+const NTFY_TOPIC_URL = 'https://ntfy.sh/informa_alamsutera_sync_channel';
+
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -51,15 +54,99 @@ function loadState(): ServerState {
 
 let serverState = loadState();
 
+function mergeSessions(local: BreakSession[], incoming: BreakSession[]): { merged: BreakSession[]; changed: boolean } {
+  const map = new Map<string, BreakSession>();
+  let changed = false;
+
+  for (const s of local) {
+    map.set(s.id, s);
+  }
+
+  for (const inc of incoming) {
+    const existing = map.get(inc.id);
+    if (!existing) {
+      map.set(inc.id, inc);
+      changed = true;
+    } else {
+      // If incoming has an end time and local doesn't, or duration/alarms differ
+      if (inc.endTime !== null && existing.endTime === null) {
+        map.set(inc.id, inc);
+        changed = true;
+      } else if (
+        inc.startTime !== existing.startTime ||
+        inc.alarmPlayed !== existing.alarmPlayed ||
+        inc.warningPlayed !== existing.warningPlayed ||
+        inc.overduePlayed !== existing.overduePlayed
+      ) {
+        map.set(inc.id, { ...existing, ...inc });
+        changed = true;
+      }
+    }
+  }
+
+  return { merged: Array.from(map.values()), changed };
+}
+
+// Background Cloud Sync - Pull latest sessions from other container instances / mobile links
+async function pullFromCloudHub() {
+  try {
+    const res = await fetch(CLOUD_SYNC_URL);
+    if (!res.ok) return;
+    const body = await res.json();
+    if (body && body.data && Array.isArray(body.data.sessions)) {
+      const cloudSessions: BreakSession[] = body.data.sessions;
+      const { merged, changed } = mergeSessions(serverState.sessions, cloudSessions);
+      if (changed) {
+        serverState.sessions = merged;
+        serverState.lastUpdated = Date.now();
+        fs.writeFileSync(DATA_FILE, JSON.stringify(serverState, null, 2), 'utf-8');
+        notifySseClients();
+      }
+    }
+  } catch {
+    // Ignore transient network errors
+  }
+}
+
+// Background Cloud Sync - Push latest sessions to Cloud Hub & broadcast signal
+async function pushToCloudHub(state: ServerState) {
+  try {
+    const payload = {
+      name: 'InformaAlamSuteraStore',
+      data: {
+        sessions: state.sessions,
+        lastUpdated: state.lastUpdated,
+      },
+    };
+    await fetch(CLOUD_SYNC_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    fetch(NTFY_TOPIC_URL, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'SYNC', lastUpdated: state.lastUpdated }),
+    }).catch(() => {});
+  } catch (err) {
+    console.error('Failed pushing to Cloud Hub:', err);
+  }
+}
+
 function saveState(state: ServerState) {
   try {
     state.lastUpdated = Date.now();
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
     notifySseClients();
+    pushToCloudHub(state);
   } catch (err) {
     console.error('Failed writing state to disk:', err);
   }
 }
+
+// Start cloud polling
+pullFromCloudHub();
+setInterval(pullFromCloudHub, 2500);
 
 // ---------------- Server-Sent Events (SSE) for Real-Time Multi-Device Sync ---------------- //
 const sseClients = new Set<Response>();
@@ -157,6 +244,20 @@ async function startServer() {
     }
 
     res.json(list);
+  });
+
+  // Batch sync sessions across instances
+  app.post('/api/sessions/sync-all', (req: Request, res: Response) => {
+    const { sessions } = req.body;
+    if (Array.isArray(sessions)) {
+      const { merged, changed } = mergeSessions(serverState.sessions, sessions);
+      if (changed) {
+        serverState.sessions = merged;
+        saveState(serverState);
+      }
+      return res.json({ success: true, count: serverState.sessions.length, sessions: serverState.sessions });
+    }
+    res.status(400).json({ success: false, message: 'Invalid sessions payload' });
   });
 
   // Start Break Session

@@ -9,6 +9,67 @@ const STORAGE_KEYS = {
   SERVER_SYNC_TIME: 'informa_sync_time_v1',
 };
 
+const CLOUD_SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0ccda16b27682';
+const NTFY_TOPIC_URL = 'https://ntfy.sh/informa_alamsutera_sync_channel';
+
+// Helper to merge local and incoming sessions without data loss
+function mergeSessionArrays(local: BreakSession[], incoming: BreakSession[]): { merged: BreakSession[]; changed: boolean } {
+  const map = new Map<string, BreakSession>();
+  let changed = false;
+
+  for (const s of local) {
+    map.set(s.id, s);
+  }
+
+  for (const inc of incoming) {
+    const existing = map.get(inc.id);
+    if (!existing) {
+      map.set(inc.id, inc);
+      changed = true;
+    } else {
+      if (inc.endTime !== null && existing.endTime === null) {
+        map.set(inc.id, inc);
+        changed = true;
+      } else if (
+        inc.startTime !== existing.startTime ||
+        inc.alarmPlayed !== existing.alarmPlayed ||
+        inc.warningPlayed !== existing.warningPlayed ||
+        inc.overduePlayed !== existing.overduePlayed
+      ) {
+        map.set(inc.id, { ...existing, ...inc });
+        changed = true;
+      }
+    }
+  }
+
+  return { merged: Array.from(map.values()), changed };
+}
+
+// Broadcast to cloud directly so all devices and links receive it immediately
+export async function pushToCloudDirect(sessions: BreakSession[]) {
+  try {
+    const payload = {
+      name: 'InformaAlamSuteraStore',
+      data: {
+        sessions,
+        lastUpdated: Date.now(),
+      },
+    };
+    fetch(CLOUD_SYNC_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+
+    fetch(NTFY_TOPIC_URL, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'SYNC', timestamp: Date.now() }),
+    }).catch(() => {});
+  } catch (e) {
+    console.debug('Cloud push warning:', e);
+  }
+}
+
 // BroadcastChannel for instant same-browser cross-tab sync
 let syncChannel: BroadcastChannel | null = null;
 if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -73,18 +134,28 @@ loadInitialCache();
 export async function fetchServerState(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    const [sessRes, empRes] = await Promise.all([
-      fetch('/api/sessions').then((r) => (r.ok ? r.json() : null)),
-      fetch('/api/employees').then((r) => (r.ok ? r.json() : null)),
+    const [sessRes, empRes, cloudRes] = await Promise.all([
+      fetch('/api/sessions').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch('/api/employees').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(CLOUD_SYNC_URL).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
 
     let changed = false;
 
+    // 1. Merge server sessions
     if (Array.isArray(sessRes)) {
-      // Check if session changed
-      if (JSON.stringify(sessRes) !== JSON.stringify(memorySessions)) {
-        memorySessions = sessRes;
-        localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessRes));
+      const { merged, changed: ch } = mergeSessionArrays(memorySessions, sessRes);
+      if (ch) {
+        memorySessions = merged;
+        changed = true;
+      }
+    }
+
+    // 2. Merge cloud hub sessions (connecting all other phones, preview links, dev links)
+    if (cloudRes && cloudRes.data && Array.isArray(cloudRes.data.sessions)) {
+      const { merged, changed: ch } = mergeSessionArrays(memorySessions, cloudRes.data.sessions);
+      if (ch) {
+        memorySessions = merged;
         changed = true;
       }
     }
@@ -98,6 +169,7 @@ export async function fetchServerState(): Promise<void> {
     }
 
     if (changed) {
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(memorySessions));
       notifySubscribers();
     }
   } catch (err) {
@@ -120,18 +192,21 @@ export function initRealtimeSync(): void {
     };
   }
 
-  // Connect Server-Sent Events (SSE)
+  // Connect Local Server-Sent Events (SSE)
   try {
-    const eventSource = new EventSource('/api/events');
-    eventSource.onmessage = () => {
+    const localSse = new EventSource('/api/events');
+    localSse.onmessage = () => {
       fetchServerState();
     };
-    eventSource.onerror = () => {
-      // SSE will automatically retry in browser
+  } catch {}
+
+  // Connect Global Cloud PubSub SSE (guarantees cross-link & cross-phone instant delivery!)
+  try {
+    const cloudSse = new EventSource('https://ntfy.sh/informa_alamsutera_sync_channel/sse');
+    cloudSse.onmessage = () => {
+      fetchServerState();
     };
-  } catch (e) {
-    console.warn('SSE not supported, using high-frequency polling', e);
-  }
+  } catch {}
 
   // Polling fallback every 1.5 seconds so all mobile devices stay in lockstep
   setInterval(() => {
@@ -229,6 +304,13 @@ export function saveSessions(sessions: BreakSession[]): void {
   localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
   syncChannel?.postMessage({ type: 'SESSIONS_UPDATED', timestamp: Date.now() });
   notifySubscribers();
+  pushToCloudDirect(sessions);
+  // Also push batch to local server
+  fetch('/api/sessions/sync-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessions }),
+  }).catch(() => {});
 }
 
 export function getTodaySessions(): BreakSession[] {
@@ -536,6 +618,8 @@ export function clearAllSessions(): void {
   localStorage.removeItem(STORAGE_KEYS.SESSIONS);
   syncChannel?.postMessage({ type: 'SESSIONS_UPDATED', timestamp: Date.now() });
   notifySubscribers();
+  pushToCloudDirect([]);
+  fetch('/api/sessions/reset-today', { method: 'POST' }).catch(() => {});
 }
 
 // ---------------- CSV Importer ---------------- //

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LogOut, Settings, ShieldCheck, UserCheck, Clock, RefreshCw } from 'lucide-react';
 import { Employee } from '../types';
+import { fetchServerState } from '../services/breakStorage';
 
 interface NavbarProps {
   currentUser: Employee | null;
@@ -18,6 +19,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSwitchView,
 }) => {
   const [currentTimeStr, setCurrentTimeStr] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncNotice, setSyncNotice] = useState<string>('');
 
   useEffect(() => {
     const updateTime = () => {
@@ -34,6 +37,14 @@ export const Navbar: React.FC<NavbarProps> = ({
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    await fetchServerState();
+    setIsSyncing(false);
+    setSyncNotice('Sinkron!');
+    setTimeout(() => setSyncNotice(''), 2000);
+  };
 
   return (
     <header className="bg-[#0033A0] text-white shadow-md sticky top-0 z-40">
@@ -57,12 +68,18 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Real-time Clock & Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Multi-HP Real-time Sync Status Indicator */}
-          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] font-bold text-emerald-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Multi-HP Sync Aktif</span>
-          </div>
+          <button
+            type="button"
+            onClick={handleManualSync}
+            title="Klik untuk sinkronisasi paksa semua HP & Manager"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-[11px] font-bold text-emerald-200 transition-all active:scale-95 cursor-pointer"
+          >
+            <span className={`w-2 h-2 rounded-full bg-emerald-400 ${isSyncing ? 'animate-spin' : 'animate-pulse'}`}></span>
+            <span>{syncNotice || 'Cloud Sync Aktif'}</span>
+            <RefreshCw className={`w-3 h-3 text-emerald-300 ${isSyncing ? 'animate-spin' : ''}`} />
+          </button>
 
           <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-xs text-blue-100">
             <Clock className="w-3.5 h-3.5 text-[#FFD100]" />

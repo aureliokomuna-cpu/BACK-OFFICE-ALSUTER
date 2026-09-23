@@ -58,6 +58,12 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Real-time Clock & Actions */}
         <div className="flex items-center gap-3">
+          {/* Multi-HP Real-time Sync Status Indicator */}
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] font-bold text-emerald-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Multi-HP Sync Aktif</span>
+          </div>
+
           <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-xs text-blue-100">
             <Clock className="w-3.5 h-3.5 text-[#FFD100]" />
             <span className="font-mono font-medium">{currentTimeStr}</span>

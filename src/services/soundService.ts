@@ -14,7 +14,7 @@ const STORAGE_KEYS = {
 let audioContext: AudioContext | null = null;
 
 /**
- * Unlocks the Web Audio context after user interaction (click/touch).
+ * Unlocks the Web Audio context and SpeechSynthesis engine after user interaction (click/touch).
  */
 export function unlockAudio(): boolean {
   try {
@@ -27,11 +27,30 @@ export function unlockAudio(): boolean {
     if (audioContext && audioContext.state === 'suspended') {
       audioContext.resume();
     }
+
+    // Prime speech synthesis on mobile browsers
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      } catch {}
+    }
     return true;
   } catch (e) {
     console.warn('Audio unlock error:', e);
     return false;
   }
+}
+
+// Global user gesture listener for seamless mobile audio unlock
+if (typeof window !== 'undefined') {
+  const globalUnlock = () => {
+    unlockAudio();
+  };
+  window.addEventListener('click', globalUnlock, { passive: true });
+  window.addEventListener('touchstart', globalUnlock, { passive: true });
+  window.addEventListener('touchend', globalUnlock, { passive: true });
 }
 
 /**

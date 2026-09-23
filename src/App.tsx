@@ -5,7 +5,7 @@ import { LoginView } from './components/LoginView';
 import { StaffBreakView } from './components/StaffBreakView';
 import { ManagerMonitorView } from './components/ManagerMonitorView';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
-import { seedInitialDemoIfEmpty, getEmployees } from './services/breakStorage';
+import { seedInitialDemoIfEmpty, getEmployees, subscribeDataChanges } from './services/breakStorage';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<Employee | null>(() => {
@@ -41,17 +41,24 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Listen to cross-tab BroadcastChannel
+  // Listen to multi-device real-time sync and cross-tab BroadcastChannel
   useEffect(() => {
+    const unsubscribe = subscribeDataChanges(() => {
+      setRefreshKey((prev) => prev + 1);
+    });
+
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       const channel = new BroadcastChannel('informa_break_channel');
       channel.onmessage = () => {
         setRefreshKey((prev) => prev + 1);
       };
       return () => {
+        unsubscribe();
         channel.close();
       };
     }
+
+    return unsubscribe;
   }, []);
 
   const handleLoginSuccess = (employee: Employee) => {

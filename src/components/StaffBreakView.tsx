@@ -9,12 +9,14 @@ import {
   markAlarmPlayed,
   markWarningPlayed,
   markOverduePlayed,
+  subscribeDataChanges,
 } from '../services/breakStorage';
 import {
   playAudio1Sudah40Menit,
   playAudio2Sisa5Menit,
   playAudio3UdahLewat40Menit,
   playStoreChime,
+  unlockAudio,
 } from '../services/soundService';
 
 interface StaffBreakViewProps {
@@ -45,6 +47,13 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
     }
   };
 
+  // Multi-device central sync subscription
+  useEffect(() => {
+    return subscribeDataChanges(() => {
+      refreshSummary();
+    });
+  }, [currentUser]);
+
   useEffect(() => {
     refreshSummary();
 
@@ -58,23 +67,29 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
         const elapsedSec = Math.max(0, Math.floor((now - current.activeSession.startTime) / 1000));
         setElapsedSeconds(elapsedSec);
 
-        // 1. Audio 2: Sisa 5 menit lagi (menit ke-35)
+        // 1. Audio 2: Sisa 5 menit lagi (menit ke-35 s.d < 40)
         if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !current.activeSession.warningPlayed) {
+          current.activeSession.warningPlayed = true;
           markWarningPlayed(current.activeSession.id);
+          unlockAudio();
           playAudio2Sisa5Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
           onSessionChanged();
         }
 
-        // 2. Audio 1: Tepat 40 menit habis ("Waktu istirahat lu tuh udah habis, ayo cepat masuk jualan lagi!")
-        if (elapsedSec >= 40 * 60 && !current.activeSession.alarmPlayed) {
+        // 2. Audio 1: Tepat 40 menit habis (menit ke-40 s.d < 41)
+        if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !current.activeSession.alarmPlayed) {
+          current.activeSession.alarmPlayed = true;
           markAlarmPlayed(current.activeSession.id);
+          unlockAudio();
           playAudio1Sudah40Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
           onSessionChanged();
         }
 
-        // 3. Audio 3: Sudah lewat 40 menit ("Waktu lu tuh udah habis, masuk ke floor sekarang!")
+        // 3. Audio 3: Sudah lewat 40 menit (menit ke-41 ke atas)
         if (elapsedSec >= 41 * 60 && !current.activeSession.overduePlayed) {
+          current.activeSession.overduePlayed = true;
           markOverduePlayed(current.activeSession.id);
+          unlockAudio();
           playAudio3UdahLewat40Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
           onSessionChanged();
         }

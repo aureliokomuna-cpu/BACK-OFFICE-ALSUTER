@@ -2,17 +2,19 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, AlertTriangle, CheckCircle, Clock, Volume2, Search, 
   Filter, Download, ShieldCheck, Megaphone, Coffee, RefreshCw, Trash2, ArrowRight, Settings2,
-  VolumeX, Radio
+  VolumeX, Radio, Sliders, Zap
 } from 'lucide-react';
 import { Employee, BreakSession } from '../types';
 import { 
   getTodaySessions, 
   getEmployees, 
   endStaffBreak, 
+  startStaffBreak,
   clearAllSessions,
   markAlarmPlayed,
   markWarningPlayed,
-  markOverduePlayed
+  markOverduePlayed,
+  subscribeDataChanges
 } from '../services/breakStorage';
 import {
   playAudio1Sudah40Menit,
@@ -20,10 +22,12 @@ import {
   playAudio3UdahLewat40Menit,
   announceCustomCall,
   subscribeAudioQueue,
-  AudioQueueStatus
+  AudioQueueStatus,
+  unlockAudio
 } from '../services/soundService';
 import { AudioUnlockBanner } from './AudioUnlockBanner';
 import { VoiceStudioModal } from './VoiceStudioModal';
+import { TimeAdjustmentModal } from './TimeAdjustmentModal';
 
 interface ManagerMonitorViewProps {
   currentUser: Employee;
@@ -44,12 +48,21 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   const [callingNip, setCallingNip] = useState<string | null>(null);
   const [nowTime, setNowTime] = useState<number>(Date.now());
   const [isStudioOpen, setIsStudioOpen] = useState<boolean>(false);
+  const [editingSession, setEditingSession] = useState<BreakSession | null>(null);
   const [autoAnnounce, setAutoAnnounce] = useState<boolean>(true);
   const [queueStatus, setQueueStatus] = useState<AudioQueueStatus>({
     isProcessing: false,
     queueLength: 0,
     currentTitle: null,
   });
+
+  // Multi-device central real-time subscription
+  useEffect(() => {
+    return subscribeDataChanges(() => {
+      setSessions(getTodaySessions());
+      setEmployees(getEmployees());
+    });
+  }, []);
 
   // Subscribe to Audio Queue status updates
   useEffect(() => {
@@ -76,19 +89,25 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
             // 1. Audio 2: Peringatan sisa 5 menit (menit ke-35 s.d < 40)
             if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !s.warningPlayed) {
+              s.warningPlayed = true;
               markWarningPlayed(s.id);
+              unlockAudio();
               playAudio2Sisa5Menit(s.employeeName, s.jobTitle, s.department);
             }
 
-            // 2. Audio 1: Tepat habis 40 menit
-            if (elapsedSec >= 40 * 60 && !s.alarmPlayed) {
+            // 2. Audio 1: Tepat habis 40 menit (menit ke-40 s.d < 41)
+            if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !s.alarmPlayed) {
+              s.alarmPlayed = true;
               markAlarmPlayed(s.id);
+              unlockAudio();
               playAudio1Sudah40Menit(s.employeeName, s.jobTitle, s.department);
             }
 
             // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas)
             if (elapsedSec >= 41 * 60 && !s.overduePlayed) {
+              s.overduePlayed = true;
               markOverduePlayed(s.id);
+              unlockAudio();
               playAudio3UdahLewat40Menit(s.employeeName, s.jobTitle, s.department);
             }
           }
@@ -185,6 +204,22 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     setCallingNip(null);
   };
 
+  const handleStartTestBreak = () => {
+    const staffList = employees.filter((e) => e.role === 'staff');
+    const available = staffList.find((st) => !activeBreaks.some((ab) => ab.nip === st.nip));
+    const target = available || staffList[0];
+    if (target) {
+      const res = startStaffBreak(target);
+      const updated = getTodaySessions();
+      setSessions(updated);
+      const newActive = updated.find((s) => s.nip === target.nip && s.endTime === null);
+      if (newActive) {
+        setEditingSession(newActive);
+      }
+      onRefreshNeeded();
+    }
+  };
+
   const handleForceEndBreak = (nip: string, staffName: string) => {
     if (window.confirm(`Akhiri sesi istirahat untuk ${staffName} (NIP: ${nip}) secara manual?`)) {
       endStaffBreak(nip);
@@ -271,6 +306,23 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                 <span>Auto-Speaker: Off</span>
               </>
             )}
+          </button>
+
+          {/* Test / Edit Time Simulation button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (activeBreaks.length > 0) {
+                setEditingSession(activeBreaks[0]);
+              } else {
+                handleStartTestBreak();
+              }
+            }}
+            title="Edit waktu berjalan atau uji alarm otomatis 35m, 40m, 41m"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer"
+          >
+            <Zap className="w-4 h-4 fill-slate-950 text-slate-950" />
+            <span>⚡ Uji Alarm / Edit Waktu</span>
           </button>
 
           {sessions.length > 0 && (
@@ -762,6 +814,16 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                         </span>
                       </button>
 
+                      {/* Tombol Edit Waktu & Uji Alarm */}
+                      <button
+                        type="button"
+                        onClick={() => setEditingSession(s)}
+                        className="w-full py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-black flex items-center justify-center gap-1.5 transition-all active:scale-98 cursor-pointer shadow-2xs"
+                      >
+                        <Sliders className="w-3.5 h-3.5 text-amber-800" />
+                        <span>⚡ Edit Waktu &amp; Uji Alarm (Simulasi)</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleForceEndBreak(s.nip, s.employeeName)}
@@ -853,6 +915,17 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
       )}
       {/* Voice Studio Modal */}
       <VoiceStudioModal isOpen={isStudioOpen} onClose={() => setIsStudioOpen(false)} />
+
+      {/* Time Adjustment & Automation Test Modal */}
+      <TimeAdjustmentModal
+        session={editingSession}
+        isOpen={editingSession !== null}
+        onClose={() => setEditingSession(null)}
+        onTimeUpdated={() => {
+          setSessions(getTodaySessions());
+          onRefreshNeeded();
+        }}
+      />
     </div>
   );
 };

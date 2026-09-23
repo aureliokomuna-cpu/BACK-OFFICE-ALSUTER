@@ -1,0 +1,2296 @@
+{
+  "employees": [
+    {
+      "nip": "103196",
+      "name": "Onky Ramdhani",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "11/08/1978",
+      "password": "197808",
+      "role": "staff"
+    },
+    {
+      "nip": "103337",
+      "name": "Prima Maelana",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/10/1989",
+      "password": "198910",
+      "role": "staff"
+    },
+    {
+      "nip": "103408",
+      "name": "Dodi Misbahudin",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "20/05/1991",
+      "password": "199105",
+      "role": "staff"
+    },
+    {
+      "nip": "103502",
+      "name": "Jamaludin",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/02/1994",
+      "password": "199402",
+      "role": "staff"
+    },
+    {
+      "nip": "104140",
+      "name": "Vicky Alfarizi",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "13/07/1997",
+      "password": "199707",
+      "role": "staff"
+    },
+    {
+      "nip": "105269",
+      "name": "Ahmad Sobandi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "20/12/1988",
+      "password": "198812",
+      "role": "staff"
+    },
+    {
+      "nip": "105326",
+      "name": "Asep Saepullah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "24/05/1996",
+      "password": "199605",
+      "role": "staff"
+    },
+    {
+      "nip": "105342",
+      "name": "Selviani Ekapratiwi",
+      "jobTitle": "DESIGNER",
+      "department": "Interior & Design 3D",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/01/1994",
+      "password": "199401",
+      "role": "staff"
+    },
+    {
+      "nip": "106202",
+      "name": "Pepi Firdaus",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/03/1987",
+      "password": "198703",
+      "role": "staff"
+    },
+    {
+      "nip": "106399",
+      "name": "Pratama Sukarno Putra",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/12/1990",
+      "password": "199012",
+      "role": "staff"
+    },
+    {
+      "nip": "106441",
+      "name": "Cecep Riki",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "05/08/1992",
+      "password": "199208",
+      "role": "staff"
+    },
+    {
+      "nip": "106477",
+      "name": "Bayu Sukandani",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "31/05/1985",
+      "password": "198505",
+      "role": "staff"
+    },
+    {
+      "nip": "106504",
+      "name": "Wahyu Susanto",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/10/1990",
+      "password": "199010",
+      "role": "staff"
+    },
+    {
+      "nip": "106510",
+      "name": "Budi Maulana",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/12/1982",
+      "password": "198212",
+      "role": "staff"
+    },
+    {
+      "nip": "106531",
+      "name": "Nurjaya",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/10/1993",
+      "password": "199310",
+      "role": "staff"
+    },
+    {
+      "nip": "106533",
+      "name": "Lutfi Azis Arrasyid",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/06/1997",
+      "password": "199706",
+      "role": "staff"
+    },
+    {
+      "nip": "106643",
+      "name": "Abdullah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/04/1980",
+      "password": "198004",
+      "role": "staff"
+    },
+    {
+      "nip": "107466",
+      "name": "Siti Badriah",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/11/1990",
+      "password": "199011",
+      "role": "staff"
+    },
+    {
+      "nip": "107469",
+      "name": "Muhamad Haerul Anwar",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/05/1987",
+      "password": "198705",
+      "role": "staff"
+    },
+    {
+      "nip": "107797",
+      "name": "Rofiyandi",
+      "jobTitle": "DEPUTY AREA MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "09/01/1990",
+      "password": "199001",
+      "role": "manager"
+    },
+    {
+      "nip": "108387",
+      "name": "Choirun Nissa",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/04/1983",
+      "password": "198304",
+      "role": "staff"
+    },
+    {
+      "nip": "108392",
+      "name": "Syafriansyah",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/05/1989",
+      "password": "198905",
+      "role": "staff"
+    },
+    {
+      "nip": "110376",
+      "name": "Febin Edwansyah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "26/09/1993",
+      "password": "199309",
+      "role": "staff"
+    },
+    {
+      "nip": "111711",
+      "name": "Abdul Hakim",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "28/07/1989",
+      "password": "198907",
+      "role": "manager"
+    },
+    {
+      "nip": "111740",
+      "name": "Retiana Ayuning Wardaya",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "03/03/1987",
+      "password": "198703",
+      "role": "staff"
+    },
+    {
+      "nip": "112669",
+      "name": "Dwi Aprina",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/04/1991",
+      "password": "199104",
+      "role": "staff"
+    },
+    {
+      "nip": "113128",
+      "name": "Dwi Arisandi",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/01/1995",
+      "password": "199501",
+      "role": "manager"
+    },
+    {
+      "nip": "113130",
+      "name": "Willa Erisiani Alsundria",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/02/1991",
+      "password": "199102",
+      "role": "staff"
+    },
+    {
+      "nip": "114802",
+      "name": "Angga Faramour Putra",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/04/1987",
+      "password": "198704",
+      "role": "manager"
+    },
+    {
+      "nip": "115570",
+      "name": "Novita Sari",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "03/10/1990",
+      "password": "199010",
+      "role": "staff"
+    },
+    {
+      "nip": "116405",
+      "name": "Pirman Alamsyah",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "20/07/1986",
+      "password": "198607",
+      "role": "staff"
+    },
+    {
+      "nip": "116797",
+      "name": "Sri Andini",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/07/1990",
+      "password": "199007",
+      "role": "staff"
+    },
+    {
+      "nip": "117452",
+      "name": "Dodi Sanmartin",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/04/1991",
+      "password": "199104",
+      "role": "staff"
+    },
+    {
+      "nip": "118286",
+      "name": "Jatmiko Edy Tantomo",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/01/1989",
+      "password": "198901",
+      "role": "staff"
+    },
+    {
+      "nip": "118754",
+      "name": "Fahrul Roji",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/03/1991",
+      "password": "199103",
+      "role": "staff"
+    },
+    {
+      "nip": "119738",
+      "name": "Nanda Warizka",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/10/1996",
+      "password": "199610",
+      "role": "staff"
+    },
+    {
+      "nip": "119861",
+      "name": "Angky Lesmana",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "18/09/1986",
+      "password": "198609",
+      "role": "staff"
+    },
+    {
+      "nip": "120855",
+      "name": "Faidz Essa Rivaldhy",
+      "jobTitle": "SALES CONSULTANT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "24/05/1998",
+      "password": "199805",
+      "role": "staff"
+    },
+    {
+      "nip": "121591",
+      "name": "Yosep Yudistira",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "05/06/1986",
+      "password": "198606",
+      "role": "staff"
+    },
+    {
+      "nip": "121708",
+      "name": "Sheli Migka",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/12/1994",
+      "password": "199412",
+      "role": "staff"
+    },
+    {
+      "nip": "122145",
+      "name": "Hermawan",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/07/1988",
+      "password": "198807",
+      "role": "staff"
+    },
+    {
+      "nip": "122147",
+      "name": "Khomarudin",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "18/10/1993",
+      "password": "199310",
+      "role": "staff"
+    },
+    {
+      "nip": "122727",
+      "name": "Retno Budi Rianto",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/03/1987",
+      "password": "198703",
+      "role": "staff"
+    },
+    {
+      "nip": "125438",
+      "name": "Riska Adrian",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/11/1993",
+      "password": "199311",
+      "role": "staff"
+    },
+    {
+      "nip": "127486",
+      "name": "Veni Sella",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/11/1996",
+      "password": "199611",
+      "role": "staff"
+    },
+    {
+      "nip": "130203",
+      "name": "Listanto",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/06/1993",
+      "password": "199306",
+      "role": "staff"
+    },
+    {
+      "nip": "130459",
+      "name": "Adei Vahlevie",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/04/1989",
+      "password": "198904",
+      "role": "staff"
+    },
+    {
+      "nip": "131011",
+      "name": "Ivan Mustasva Arianto",
+      "jobTitle": "PRODUCT SPECIALIST (KELS)",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/07/1996",
+      "password": "199607",
+      "role": "staff"
+    },
+    {
+      "nip": "131184",
+      "name": "Dede Abdul Hamid",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "08/08/1996",
+      "password": "199608",
+      "role": "staff"
+    },
+    {
+      "nip": "133169",
+      "name": "Perdi Dwiseptian",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "02/09/1987",
+      "password": "198709",
+      "role": "staff"
+    },
+    {
+      "nip": "134298",
+      "name": "Chairul Iman",
+      "jobTitle": "PRODUCT SPECIALIST (KELS)",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "02/02/1993",
+      "password": "199302",
+      "role": "staff"
+    },
+    {
+      "nip": "137141",
+      "name": "Septian Dwi Yoga",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/01/1995",
+      "password": "199501",
+      "role": "manager"
+    },
+    {
+      "nip": "137443",
+      "name": "Ulfan Adita Pratama",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/06/1990",
+      "password": "199006",
+      "role": "staff"
+    },
+    {
+      "nip": "138977",
+      "name": "Meylinda Leliana Br Saragih",
+      "jobTitle": "DEPUTY AREA MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/05/1995",
+      "password": "199505",
+      "role": "manager"
+    },
+    {
+      "nip": "139563",
+      "name": "Dean Rizkyandani",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "15/08/1997",
+      "password": "199708",
+      "role": "staff"
+    },
+    {
+      "nip": "5470",
+      "name": "Ali Sopjan",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/07/1979",
+      "password": "197907",
+      "role": "staff"
+    },
+    {
+      "nip": "142106",
+      "name": "Faisal Ramadhan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "19/03/1992",
+      "password": "199203",
+      "role": "staff"
+    },
+    {
+      "nip": "143021",
+      "name": "Nuky Septian Chrisandy",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "11/09/1998",
+      "password": "199809",
+      "role": "staff"
+    },
+    {
+      "nip": "144244",
+      "name": "Magdalena Evi Fani",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/12/1991",
+      "password": "199112",
+      "role": "staff"
+    },
+    {
+      "nip": "148068",
+      "name": "Zam Zam Salehudin Ahmadi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/10/1998",
+      "password": "199810",
+      "role": "staff"
+    },
+    {
+      "nip": "152132",
+      "name": "Ridho Zakaria",
+      "jobTitle": "SALES CONSULTANT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "19/10/1995",
+      "password": "199510",
+      "role": "staff"
+    },
+    {
+      "nip": "152459",
+      "name": "Arief Rachman Kotho",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/09/1994",
+      "password": "199409",
+      "role": "staff"
+    },
+    {
+      "nip": "154035",
+      "name": "Mochammad Sanwani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/08/1993",
+      "password": "199308",
+      "role": "staff"
+    },
+    {
+      "nip": "154251",
+      "name": "Fitri Silpani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/02/1996",
+      "password": "199602",
+      "role": "staff"
+    },
+    {
+      "nip": "160190",
+      "name": "Muhammad Choirul",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/07/1998",
+      "password": "199807",
+      "role": "staff"
+    },
+    {
+      "nip": "160429",
+      "name": "Bayu Cahyo Hutoyo",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/01/1997",
+      "password": "199701",
+      "role": "staff"
+    },
+    {
+      "nip": "161643",
+      "name": "Muchammad Sofyan",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "18/02/1994",
+      "password": "199402",
+      "role": "staff"
+    },
+    {
+      "nip": "162284",
+      "name": "Yuki Fhilif Saputra",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/03/1999",
+      "password": "199903",
+      "role": "staff"
+    },
+    {
+      "nip": "162604",
+      "name": "Ricky Subagja",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "24/07/1994",
+      "password": "199407",
+      "role": "staff"
+    },
+    {
+      "nip": "164546",
+      "name": "Taufik Rahman",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/02/1996",
+      "password": "199602",
+      "role": "staff"
+    },
+    {
+      "nip": "164746",
+      "name": "Husnul Khotimah",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/01/2000",
+      "password": "200001",
+      "role": "staff"
+    },
+    {
+      "nip": "164820",
+      "name": "Dwi Ari Ardiyanto",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/08/1998",
+      "password": "199808",
+      "role": "staff"
+    },
+    {
+      "nip": "165513",
+      "name": "Moh Farhan Nurrahman",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/02/1998",
+      "password": "199802",
+      "role": "staff"
+    },
+    {
+      "nip": "165520",
+      "name": "Sheila Amelia",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "08/02/2000",
+      "password": "200002",
+      "role": "staff"
+    },
+    {
+      "nip": "166874",
+      "name": "Aurelio Adolf Komuna",
+      "jobTitle": "DEPUTY AREA MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/11/1999",
+      "password": "199911",
+      "role": "manager"
+    },
+    {
+      "nip": "166968",
+      "name": "Mohammad Rizaly Fahmi Afandi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/10/1998",
+      "password": "199810",
+      "role": "staff"
+    },
+    {
+      "nip": "167677",
+      "name": "Muhammad Fariz",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/04/2000",
+      "password": "200004",
+      "role": "staff"
+    },
+    {
+      "nip": "168289",
+      "name": "Gabriel Sebastian James Umboh",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "15/04/2001",
+      "password": "200104",
+      "role": "staff"
+    },
+    {
+      "nip": "169787",
+      "name": "Azizah Fauziah",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/07/2000",
+      "password": "200007",
+      "role": "staff"
+    },
+    {
+      "nip": "171189",
+      "name": "Abdurahman Wahid",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "02/10/1999",
+      "password": "199910",
+      "role": "staff"
+    },
+    {
+      "nip": "171706",
+      "name": "Disha Febriani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/02/1998",
+      "password": "199802",
+      "role": "staff"
+    },
+    {
+      "nip": "171707",
+      "name": "Putri Ayu Naibaho",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/03/1998",
+      "password": "199803",
+      "role": "staff"
+    },
+    {
+      "nip": "171995",
+      "name": "Galuh Dewi Anjani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/07/1999",
+      "password": "199907",
+      "role": "staff"
+    },
+    {
+      "nip": "171999",
+      "name": "Indah Liana Sari",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "26/04/1996",
+      "password": "199604",
+      "role": "staff"
+    },
+    {
+      "nip": "172000",
+      "name": "Azrim Angkoni",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/08/1995",
+      "password": "199508",
+      "role": "staff"
+    },
+    {
+      "nip": "172530",
+      "name": "Nelvi Yanti",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "01/12/1999",
+      "password": "199912",
+      "role": "staff"
+    },
+    {
+      "nip": "172644",
+      "name": "Sadam Al Fayed",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/08/1998",
+      "password": "199808",
+      "role": "staff"
+    },
+    {
+      "nip": "173609",
+      "name": "Tomy Putra Agustien",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/09/1995",
+      "password": "199509",
+      "role": "staff"
+    },
+    {
+      "nip": "173763",
+      "name": "Ferhans Iqbal Herdiansyah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/06/2004",
+      "password": "200406",
+      "role": "staff"
+    },
+    {
+      "nip": "174457",
+      "name": "Fera Yuniar",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "08/06/1997",
+      "password": "199706",
+      "role": "staff"
+    },
+    {
+      "nip": "174999",
+      "name": "Rizki Dermawan",
+      "jobTitle": "SALES CONSULTANT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/11/1998",
+      "password": "199811",
+      "role": "staff"
+    },
+    {
+      "nip": "175001",
+      "name": "Ferdiawan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "02/03/1994",
+      "password": "199403",
+      "role": "staff"
+    },
+    {
+      "nip": "175004",
+      "name": "Rafli Zul Azhar",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/06/1994",
+      "password": "199406",
+      "role": "staff"
+    },
+    {
+      "nip": "175495",
+      "name": "Toni Hidayat",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/07/1998",
+      "password": "199807",
+      "role": "staff"
+    },
+    {
+      "nip": "175496",
+      "name": "Fathan Azis",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "11/05/2000",
+      "password": "200005",
+      "role": "staff"
+    },
+    {
+      "nip": "175694",
+      "name": "Tifani Herawati",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/04/1998",
+      "password": "199804",
+      "role": "staff"
+    },
+    {
+      "nip": "175832",
+      "name": "Asriadi Asgar",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "08/11/1998",
+      "password": "199811",
+      "role": "staff"
+    },
+    {
+      "nip": "175833",
+      "name": "Aziz Miftahul Fauzi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/03/1998",
+      "password": "199803",
+      "role": "staff"
+    },
+    {
+      "nip": "175981",
+      "name": "Fitri Ramayanti",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/01/1998",
+      "password": "199801",
+      "role": "staff"
+    },
+    {
+      "nip": "176136",
+      "name": "Ridho Gustiantoro",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/08/1997",
+      "password": "199708",
+      "role": "staff"
+    },
+    {
+      "nip": "176137",
+      "name": "Rahmat Aditya",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "01/02/1999",
+      "password": "199902",
+      "role": "staff"
+    },
+    {
+      "nip": "176138",
+      "name": "Ahmad Fadila",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "11/02/2000",
+      "password": "200002",
+      "role": "staff"
+    },
+    {
+      "nip": "176140",
+      "name": "Wahyu Permana",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/08/1999",
+      "password": "199908",
+      "role": "staff"
+    },
+    {
+      "nip": "176141",
+      "name": "Muhamad Yusuf",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/07/1998",
+      "password": "199807",
+      "role": "staff"
+    },
+    {
+      "nip": "176142",
+      "name": "Isham Mustafid",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/11/1995",
+      "password": "199511",
+      "role": "staff"
+    },
+    {
+      "nip": "176338",
+      "name": "Haerudin",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "11/09/1999",
+      "password": "199909",
+      "role": "staff"
+    },
+    {
+      "nip": "176556",
+      "name": "Herry Yuswan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/02/1997",
+      "password": "199702",
+      "role": "staff"
+    },
+    {
+      "nip": "176646",
+      "name": "Rizky Fadhilla",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/10/1997",
+      "password": "199710",
+      "role": "staff"
+    },
+    {
+      "nip": "176649",
+      "name": "Prediansyah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/03/2004",
+      "password": "200403",
+      "role": "staff"
+    },
+    {
+      "nip": "176651",
+      "name": "Nia Aulina",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "18/08/1999",
+      "password": "199908",
+      "role": "staff"
+    },
+    {
+      "nip": "176728",
+      "name": "Nanda Setiana",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "01/09/1998",
+      "password": "199809",
+      "role": "staff"
+    },
+    {
+      "nip": "176730",
+      "name": "Abdul Azis",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "15/02/1996",
+      "password": "199602",
+      "role": "staff"
+    },
+    {
+      "nip": "176927",
+      "name": "Aldi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/06/2005",
+      "password": "200506",
+      "role": "staff"
+    },
+    {
+      "nip": "176928",
+      "name": "Repan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/01/2002",
+      "password": "200201",
+      "role": "staff"
+    },
+    {
+      "nip": "177063",
+      "name": "Nabilah Adani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/07/2000",
+      "password": "200007",
+      "role": "staff"
+    },
+    {
+      "nip": "177065",
+      "name": "Vanny Eriyani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/09/2001",
+      "password": "200109",
+      "role": "staff"
+    },
+    {
+      "nip": "177464",
+      "name": "Rizky Setiawan",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "05/03/1999",
+      "password": "199903",
+      "role": "staff"
+    },
+    {
+      "nip": "177535",
+      "name": "Nur Listiana",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/09/1997",
+      "password": "199709",
+      "role": "staff"
+    },
+    {
+      "nip": "178197",
+      "name": "Ryan Yulianto",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "31/07/2003",
+      "password": "200307",
+      "role": "staff"
+    },
+    {
+      "nip": "179029",
+      "name": "Yuda Aditya Nugraha",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/10/1998",
+      "password": "199810",
+      "role": "staff"
+    },
+    {
+      "nip": "179039",
+      "name": "Rissa Nursanti",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/08/2001",
+      "password": "200108",
+      "role": "staff"
+    },
+    {
+      "nip": "179235",
+      "name": "Muchlis",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "09/10/1997",
+      "password": "199710",
+      "role": "staff"
+    },
+    {
+      "nip": "179583",
+      "name": "Rama Dhani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "03/01/1999",
+      "password": "199901",
+      "role": "staff"
+    },
+    {
+      "nip": "179589",
+      "name": "Illa Humairoh",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "01/09/1998",
+      "password": "199809",
+      "role": "staff"
+    },
+    {
+      "nip": "179965",
+      "name": "Muhamad Agung",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "31/12/1997",
+      "password": "199712",
+      "role": "staff"
+    },
+    {
+      "nip": "179967",
+      "name": "Ali Said",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "19/05/2002",
+      "password": "200205",
+      "role": "staff"
+    },
+    {
+      "nip": "180432",
+      "name": "Agustiansyah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/08/1996",
+      "password": "199608",
+      "role": "staff"
+    },
+    {
+      "nip": "180436",
+      "name": "Fikri Maulana",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "19/04/2005",
+      "password": "200504",
+      "role": "staff"
+    },
+    {
+      "nip": "181370",
+      "name": "Kamila Indah Pratiwi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "15/03/2000",
+      "password": "200003",
+      "role": "staff"
+    },
+    {
+      "nip": "181372",
+      "name": "Heriyawan",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "19/08/2000",
+      "password": "200008",
+      "role": "staff"
+    },
+    {
+      "nip": "181680",
+      "name": "Mahsya Izdihar",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/08/2003",
+      "password": "200308",
+      "role": "staff"
+    },
+    {
+      "nip": "182106",
+      "name": "Yoga Matoris",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/02/2000",
+      "password": "200002",
+      "role": "staff"
+    },
+    {
+      "nip": "182109",
+      "name": "Bagas Prayoga",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "03/03/1996",
+      "password": "199603",
+      "role": "staff"
+    },
+    {
+      "nip": "182110",
+      "name": "Hafidz Abdullah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/12/2001",
+      "password": "200112",
+      "role": "staff"
+    },
+    {
+      "nip": "182995",
+      "name": "Rico Ari Saputra",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/07/1998",
+      "password": "199807",
+      "role": "staff"
+    },
+    {
+      "nip": "183138",
+      "name": "Alfian Krisna Bayu Gp",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "24/10/1998",
+      "password": "199810",
+      "role": "staff"
+    },
+    {
+      "nip": "183303",
+      "name": "Abil Durahman",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/01/2001",
+      "password": "200101",
+      "role": "staff"
+    },
+    {
+      "nip": "183726",
+      "name": "Fajri Surya Ramadhan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "31/10/2003",
+      "password": "200310",
+      "role": "staff"
+    },
+    {
+      "nip": "183728",
+      "name": "Muhamad Daffa Aldian Syahputra",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/10/2003",
+      "password": "200310",
+      "role": "staff"
+    },
+    {
+      "nip": "183729",
+      "name": "Rafi Genta Ramadan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/11/2002",
+      "password": "200211",
+      "role": "staff"
+    },
+    {
+      "nip": "183731",
+      "name": "Saekhoni Yahya",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "02/08/2000",
+      "password": "200008",
+      "role": "staff"
+    },
+    {
+      "nip": "184454",
+      "name": "Sulaeman",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "03/08/2001",
+      "password": "200108",
+      "role": "staff"
+    },
+    {
+      "nip": "184826",
+      "name": "Samuel Christian",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/05/2001",
+      "password": "200105",
+      "role": "staff"
+    },
+    {
+      "nip": "184962",
+      "name": "Rahmat Hidayat",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/08/2000",
+      "password": "200008",
+      "role": "staff"
+    },
+    {
+      "nip": "184963",
+      "name": "Adit Kurniawan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/07/2004",
+      "password": "200407",
+      "role": "staff"
+    },
+    {
+      "nip": "185551",
+      "name": "Dicky Setiawan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/10/1996",
+      "password": "199610",
+      "role": "staff"
+    },
+    {
+      "nip": "185701",
+      "name": "Dedi Anggara",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/12/1995",
+      "password": "199512",
+      "role": "staff"
+    },
+    {
+      "nip": "186718",
+      "name": "Faras Al Rizal Falah",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/07/2000",
+      "password": "200007",
+      "role": "staff"
+    },
+    {
+      "nip": "186905",
+      "name": "Muhammad Zulkarnain",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "28/06/2005",
+      "password": "200506",
+      "role": "staff"
+    },
+    {
+      "nip": "186986",
+      "name": "Herdiansyah Farhan Tri Saputra",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/07/2003",
+      "password": "200307",
+      "role": "staff"
+    },
+    {
+      "nip": "187014",
+      "name": "Alif Ardiansyah Wadjo",
+      "jobTitle": "SALES CONSULTANT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "28/06/2000",
+      "password": "200006",
+      "role": "staff"
+    },
+    {
+      "nip": "187081",
+      "name": "Ronaldo Pratama",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/07/1997",
+      "password": "199707",
+      "role": "staff"
+    },
+    {
+      "nip": "188489",
+      "name": "Sudiarto Agus Nur Rohman",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "31/08/2000",
+      "password": "200008",
+      "role": "staff"
+    },
+    {
+      "nip": "189501",
+      "name": "Muhamad Ripal",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/09/2002",
+      "password": "200209",
+      "role": "staff"
+    },
+    {
+      "nip": "189824",
+      "name": "Sari Novatiani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "13/11/1999",
+      "password": "199911",
+      "role": "staff"
+    },
+    {
+      "nip": "190017",
+      "name": "Daniel Budi Prakoso",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "11/11/2005",
+      "password": "200511",
+      "role": "staff"
+    },
+    {
+      "nip": "190020",
+      "name": "Wahyu Bukhori",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "13/03/2000",
+      "password": "200003",
+      "role": "staff"
+    },
+    {
+      "nip": "190793",
+      "name": "Andri",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "02/02/1997",
+      "password": "199702",
+      "role": "staff"
+    },
+    {
+      "nip": "191316",
+      "name": "Agung Permadi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/08/2000",
+      "password": "200008",
+      "role": "staff"
+    },
+    {
+      "nip": "192219",
+      "name": "Athalla Naufal Al Faridz",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/09/1999",
+      "password": "199909",
+      "role": "staff"
+    },
+    {
+      "nip": "192303",
+      "name": "Audy Alif Putra",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/08/1998",
+      "password": "199808",
+      "role": "staff"
+    },
+    {
+      "nip": "192340",
+      "name": "Salsa Bilahnuryuda",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "16/01/2004",
+      "password": "200401",
+      "role": "staff"
+    },
+    {
+      "nip": "192341",
+      "name": "Adji Suryo Tri Nurhasan",
+      "jobTitle": "SALES CONSULTANT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "03/03/1997",
+      "password": "199703",
+      "role": "staff"
+    },
+    {
+      "nip": "192426",
+      "name": "Ryan Tri Prastyo",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "24/01/2003",
+      "password": "200301",
+      "role": "staff"
+    },
+    {
+      "nip": "192427",
+      "name": "Parhan Andrian",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "15/11/2000",
+      "password": "200011",
+      "role": "staff"
+    },
+    {
+      "nip": "192623",
+      "name": "Jabandi Arya Pratama",
+      "jobTitle": "SALES PROJECT OFFICER",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/10/1999",
+      "password": "199910",
+      "role": "staff"
+    },
+    {
+      "nip": "192992",
+      "name": "Ilyasa Alifansyach",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/04/2002",
+      "password": "200204",
+      "role": "staff"
+    },
+    {
+      "nip": "192993",
+      "name": "Fahreza Nugroho",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/01/2001",
+      "password": "200101",
+      "role": "staff"
+    },
+    {
+      "nip": "193053",
+      "name": "Denis Andria Jaya",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "09/01/2002",
+      "password": "200201",
+      "role": "manager"
+    },
+    {
+      "nip": "193309",
+      "name": "Wilfrida Dwi Apriana Turnip",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/04/2002",
+      "password": "200204",
+      "role": "staff"
+    },
+    {
+      "nip": "193310",
+      "name": "Rifki Julian",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "24/07/2004",
+      "password": "200407",
+      "role": "staff"
+    },
+    {
+      "nip": "193312",
+      "name": "Nazwa Safira",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/07/2006",
+      "password": "200607",
+      "role": "staff"
+    },
+    {
+      "nip": "193455",
+      "name": "Maulana Maris",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "24/10/2000",
+      "password": "200010",
+      "role": "staff"
+    },
+    {
+      "nip": "193686",
+      "name": "Selvia Wulandari",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "22/06/2006",
+      "password": "200606",
+      "role": "staff"
+    },
+    {
+      "nip": "193688",
+      "name": "Rudi Tresna",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/07/1996",
+      "password": "199607",
+      "role": "staff"
+    },
+    {
+      "nip": "194067",
+      "name": "Lufita Ramadhany Zulkifly",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "05/01/1999",
+      "password": "199901",
+      "role": "staff"
+    },
+    {
+      "nip": "194353",
+      "name": "Intan Ayu Larasati",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/08/2005",
+      "password": "200508",
+      "role": "staff"
+    },
+    {
+      "nip": "194644",
+      "name": "Gilang Ramadhan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "27/11/2002",
+      "password": "200211",
+      "role": "staff"
+    },
+    {
+      "nip": "194645",
+      "name": "Dewi Febriani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/02/2000",
+      "password": "200002",
+      "role": "staff"
+    },
+    {
+      "nip": "194646",
+      "name": "Aditya Kusuma Yudistira",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "20/04/2006",
+      "password": "200604",
+      "role": "staff"
+    },
+    {
+      "nip": "194647",
+      "name": "Muhamad Pradipta",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/07/2005",
+      "password": "200507",
+      "role": "staff"
+    },
+    {
+      "nip": "194849",
+      "name": "Afgan Ibnu Azaidan",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "11/05/2005",
+      "password": "200505",
+      "role": "staff"
+    },
+    {
+      "nip": "194974",
+      "name": "Daniel Febrian",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "05/02/2003",
+      "password": "200302",
+      "role": "staff"
+    },
+    {
+      "nip": "194975",
+      "name": "Diva Nurfauziah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/09/2003",
+      "password": "200309",
+      "role": "staff"
+    },
+    {
+      "nip": "194976",
+      "name": "Syamsul Hibatullah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/04/2001",
+      "password": "200104",
+      "role": "staff"
+    },
+    {
+      "nip": "195002",
+      "name": "Desta Puja Dinata",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/09/2006",
+      "password": "200609",
+      "role": "staff"
+    },
+    {
+      "nip": "195142",
+      "name": "Ganis Mahardika",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "13/01/2004",
+      "password": "200401",
+      "role": "staff"
+    },
+    {
+      "nip": "195586",
+      "name": "Nur Kusumo",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/06/1999",
+      "password": "199906",
+      "role": "staff"
+    },
+    {
+      "nip": "195587",
+      "name": "Nur Asaro Syamsah",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "13/10/2002",
+      "password": "200210",
+      "role": "staff"
+    },
+    {
+      "nip": "195739",
+      "name": "Diki Wahyudi",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "30/01/2002",
+      "password": "200201",
+      "role": "staff"
+    },
+    {
+      "nip": "195855",
+      "name": "Bagus Prakoso",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/08/2002",
+      "password": "200208",
+      "role": "staff"
+    },
+    {
+      "nip": "196694",
+      "name": "Bambang Asmorosanto",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/09/1986",
+      "password": "198609",
+      "role": "staff"
+    },
+    {
+      "nip": "196731",
+      "name": "Anang Dwyan Romadhoni",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "05/01/1998",
+      "password": "199801",
+      "role": "staff"
+    },
+    {
+      "nip": "196745",
+      "name": "Handoko",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "31/05/1998",
+      "password": "199805",
+      "role": "staff"
+    },
+    {
+      "nip": "197421",
+      "name": "Jessica Maharani",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/01/2005",
+      "password": "200501",
+      "role": "staff"
+    },
+    {
+      "nip": "197422",
+      "name": "Alya Tya Samanta",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/09/2002",
+      "password": "200209",
+      "role": "staff"
+    },
+    {
+      "nip": "198809",
+      "name": "Ramadhan Zahir Al Daffa",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "10/11/2003",
+      "password": "200311",
+      "role": "staff"
+    },
+    {
+      "nip": "198810",
+      "name": "Risanti Oktaviani Ashari",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "26/10/1999",
+      "password": "199910",
+      "role": "staff"
+    },
+    {
+      "nip": "70089",
+      "name": "Hanny Rudi Rianto",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/06/1985",
+      "password": "198506",
+      "role": "staff"
+    },
+    {
+      "nip": "90861",
+      "name": "Andri",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "23/11/1986",
+      "password": "198611",
+      "role": "staff"
+    },
+    {
+      "nip": "90862",
+      "name": "Supriyadi",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "13/07/1985",
+      "password": "198507",
+      "role": "staff"
+    },
+    {
+      "nip": "94628",
+      "name": "Idrus Al Masyhur",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/12/1989",
+      "password": "198912",
+      "role": "manager"
+    },
+    {
+      "nip": "94681",
+      "name": "Saipudin Wijaya",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/06/1991",
+      "password": "199106",
+      "role": "staff"
+    },
+    {
+      "nip": "94682",
+      "name": "Andrei Hilces",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "20/06/1986",
+      "password": "198606",
+      "role": "staff"
+    },
+    {
+      "nip": "94756",
+      "name": "Fahmi Utomo Widodo",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/01/1989",
+      "password": "198901",
+      "role": "manager"
+    },
+    {
+      "nip": "94835",
+      "name": "Dadan Romansah",
+      "jobTitle": "LOGISTIC SUPERVISOR",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "05/04/1989",
+      "password": "198904",
+      "role": "manager"
+    },
+    {
+      "nip": "94836",
+      "name": "Sigit Nopiyanto",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "09/11/1991",
+      "password": "199111",
+      "role": "staff"
+    },
+    {
+      "nip": "94840",
+      "name": "Lukmanul Hakim",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "18/10/1986",
+      "password": "198610",
+      "role": "staff"
+    },
+    {
+      "nip": "94871",
+      "name": "Benni Aria Citra Permana",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "14/04/1986",
+      "password": "198604",
+      "role": "staff"
+    },
+    {
+      "nip": "94992",
+      "name": "Cipto Nugroho",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "09/03/1991",
+      "password": "199103",
+      "role": "staff"
+    },
+    {
+      "nip": "95386",
+      "name": "Erwin Syamsudin",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "07/03/1983",
+      "password": "198303",
+      "role": "staff"
+    },
+    {
+      "nip": "95845",
+      "name": "M Machmud",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "09/11/1986",
+      "password": "198611",
+      "role": "staff"
+    },
+    {
+      "nip": "96254",
+      "name": "Fatma Maulida",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "21/11/1986",
+      "password": "198611",
+      "role": "staff"
+    },
+    {
+      "nip": "96802",
+      "name": "Muhammad Adun",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "01/10/1987",
+      "password": "198710",
+      "role": "staff"
+    },
+    {
+      "nip": "96806",
+      "name": "Hayanih",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "13/08/1990",
+      "password": "199008",
+      "role": "staff"
+    },
+    {
+      "nip": "96814",
+      "name": "Arie Surianto",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "31/08/1983",
+      "password": "198308",
+      "role": "staff"
+    },
+    {
+      "nip": "96849",
+      "name": "Oky Oktavianus",
+      "jobTitle": "DEPUTY STORE OPERATION MANAGER",
+      "department": "Store Management",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "03/07/1987",
+      "password": "198707",
+      "role": "manager"
+    },
+    {
+      "nip": "97539",
+      "name": "Elang Perkasa",
+      "jobTitle": "LOGISTIC SUPERVISOR",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "26/09/1986",
+      "password": "198609",
+      "role": "manager"
+    },
+    {
+      "nip": "97542",
+      "name": "Hafid Ersad",
+      "jobTitle": "LOGISTIC STAFF",
+      "department": "Logistik & Gudang",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "06/05/1986",
+      "password": "198605",
+      "role": "staff"
+    },
+    {
+      "nip": "98004",
+      "name": "Jaenal Aripin",
+      "jobTitle": "CASHIER",
+      "department": "Kasir & Front Office",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/10/1993",
+      "password": "199310",
+      "role": "staff"
+    },
+    {
+      "nip": "98457",
+      "name": "Sandi Jatnika",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "25/01/1988",
+      "password": "198801",
+      "role": "staff"
+    },
+    {
+      "nip": "99278",
+      "name": "Nasrul Latif",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "18/07/1985",
+      "password": "198507",
+      "role": "staff"
+    },
+    {
+      "nip": "100192",
+      "name": "Jaka Satria Fadli",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/10/1992",
+      "password": "199210",
+      "role": "staff"
+    },
+    {
+      "nip": "101172",
+      "name": "Rizky Budi Prastya",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "19/05/1992",
+      "password": "199205",
+      "role": "staff"
+    },
+    {
+      "nip": "101848",
+      "name": "M Yuriyansyah",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "29/07/1995",
+      "password": "199507",
+      "role": "staff"
+    },
+    {
+      "nip": "101861",
+      "name": "Irona Wulandari",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "12/04/1995",
+      "password": "199504",
+      "role": "staff"
+    },
+    {
+      "nip": "101853",
+      "name": "Riki Subagja",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "04/05/1989",
+      "password": "198905",
+      "role": "staff"
+    },
+    {
+      "nip": "101854",
+      "name": "Sigit Sanjaya",
+      "jobTitle": "PRODUCT SPECIALIST",
+      "department": "Product Specialist",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "17/07/1994",
+      "password": "199407",
+      "role": "staff"
+    },
+    {
+      "nip": "102885",
+      "name": "Sukma Andika",
+      "jobTitle": "SMT",
+      "department": "SMT",
+      "storeZone": "Informa Alam Sutera",
+      "birthDate": "08/06/1995",
+      "password": "199506",
+      "role": "staff"
+    }
+  ],
+  "sessions": [],
+  "lastUpdated": 1790142733224
+}

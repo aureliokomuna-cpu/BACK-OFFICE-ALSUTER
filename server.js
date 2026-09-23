@@ -290,6 +290,8 @@ var __dirname = path.dirname(__filename);
 var PORT = Number(process.env.PORT) || 3e3;
 var DATA_DIR = path.resolve(__dirname, "data_store");
 var DATA_FILE = path.resolve(DATA_DIR, "informa_state.json");
+var CLOUD_SYNC_URL = "https://api.restful-api.dev/objects/ff808181a09d98f701a0ccda16b27682";
+var NTFY_TOPIC_URL = "https://ntfy.sh/informa_alamsutera_sync_channel";
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -318,15 +320,136 @@ function loadState() {
   return initial;
 }
 var serverState = loadState();
+function reconcileServerSessions(local, remote) {
+  const map = /* @__PURE__ */ new Map();
+  let localUpdated = false;
+  let remoteNeedsUpdate = false;
+  for (const s of local) {
+    map.set(s.id, { ...s });
+  }
+  for (const r of remote) {
+    const l = map.get(r.id);
+    if (!l) {
+      map.set(r.id, { ...r });
+      localUpdated = true;
+    } else {
+      let merged = { ...l };
+      let changed = false;
+      if (r.endTime !== null && l.endTime === null) {
+        merged.endTime = r.endTime;
+        merged.durationMinutes = r.durationMinutes;
+        changed = true;
+        localUpdated = true;
+      } else if (l.endTime !== null && r.endTime === null) {
+        remoteNeedsUpdate = true;
+      }
+      if (r.alarmPlayed && !l.alarmPlayed) {
+        merged.alarmPlayed = true;
+        changed = true;
+        localUpdated = true;
+      } else if (l.alarmPlayed && !r.alarmPlayed) {
+        remoteNeedsUpdate = true;
+      }
+      if (r.warningPlayed && !l.warningPlayed) {
+        merged.warningPlayed = true;
+        changed = true;
+        localUpdated = true;
+      } else if (l.warningPlayed && !r.warningPlayed) {
+        remoteNeedsUpdate = true;
+      }
+      if (r.overduePlayed && !l.overduePlayed) {
+        merged.overduePlayed = true;
+        changed = true;
+        localUpdated = true;
+      } else if (l.overduePlayed && !r.overduePlayed) {
+        remoteNeedsUpdate = true;
+      }
+      if (changed) {
+        map.set(r.id, merged);
+      }
+    }
+  }
+  const remoteIdSet = new Set(remote.map((r) => r.id));
+  for (const s of local) {
+    if (!remoteIdSet.has(s.id)) {
+      remoteNeedsUpdate = true;
+    }
+  }
+  return {
+    merged: Array.from(map.values()),
+    localUpdated,
+    remoteNeedsUpdate
+  };
+}
+var isServerPushing = false;
+async function pullFromCloudHub() {
+  try {
+    const res = await fetch(CLOUD_SYNC_URL);
+    if (!res.ok) {
+      console.warn("Cloud hub fetch failed:", res.status);
+      return;
+    }
+    const body = await res.json();
+    if (body && body.data && Array.isArray(body.data.sessions)) {
+      const cloudSessions = body.data.sessions;
+      const { merged, localUpdated, remoteNeedsUpdate } = reconcileServerSessions(
+        serverState.sessions,
+        cloudSessions
+      );
+      if (localUpdated) {
+        console.log(`[CloudSync] Updated local sessions from cloud: count=${merged.length}`);
+        serverState.sessions = merged;
+        serverState.lastUpdated = Date.now();
+        fs.writeFileSync(DATA_FILE, JSON.stringify(serverState, null, 2), "utf-8");
+        notifySseClients();
+      }
+      if (remoteNeedsUpdate && serverState.sessions.length > 0) {
+        pushToCloudHub(serverState);
+      }
+    }
+  } catch (err) {
+    console.error("Cloud pull error:", err);
+  }
+}
+async function pushToCloudHub(state) {
+  if (isServerPushing) return;
+  isServerPushing = true;
+  try {
+    const payload = {
+      name: "InformaAlamSuteraStore",
+      data: {
+        sessions: state.sessions,
+        lastUpdated: state.lastUpdated
+      }
+    };
+    await fetch(CLOUD_SYNC_URL, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    fetch(NTFY_TOPIC_URL, {
+      method: "POST",
+      body: JSON.stringify({ type: "SYNC", lastUpdated: state.lastUpdated })
+    }).catch(() => {
+    });
+  } catch (err) {
+    console.error("Failed pushing to Cloud Hub:", err);
+  } finally {
+    isServerPushing = false;
+  }
+}
 function saveState(state) {
   try {
     state.lastUpdated = Date.now();
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), "utf-8");
     notifySseClients();
+    pushToCloudHub(state);
   } catch (err) {
     console.error("Failed writing state to disk:", err);
   }
 }
+pullFromCloudHub();
+setInterval(pullFromCloudHub, 2500);
 var sseClients = /* @__PURE__ */ new Set();
 function notifySseClients() {
   const payload = JSON.stringify({
@@ -405,6 +528,18 @@ async function startServer() {
       list = list.filter((s) => s.nip === nip.trim());
     }
     res.json(list);
+  });
+  app.post("/api/sessions/sync-all", (req, res) => {
+    const { sessions } = req.body;
+    if (Array.isArray(sessions)) {
+      const { merged, localUpdated } = reconcileServerSessions(serverState.sessions, sessions);
+      if (localUpdated) {
+        serverState.sessions = merged;
+        saveState(serverState);
+      }
+      return res.json({ success: true, count: serverState.sessions.length, sessions: serverState.sessions });
+    }
+    res.status(400).json({ success: false, message: "Invalid sessions payload" });
   });
   app.post("/api/sessions/start", (req, res) => {
     const { nip } = req.body;

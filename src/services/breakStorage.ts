@@ -12,54 +12,133 @@ const STORAGE_KEYS = {
 const CLOUD_SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0ccda16b27682';
 const NTFY_TOPIC_URL = 'https://ntfy.sh/informa_alamsutera_sync_channel';
 
-// Helper to merge local and incoming sessions without data loss
-function mergeSessionArrays(local: BreakSession[], incoming: BreakSession[]): { merged: BreakSession[]; changed: boolean } {
-  const map = new Map<string, BreakSession>();
-  let changed = false;
+// Helper to reconcile local and remote sessions bidirectionally
+interface ReconciliationResult {
+  merged: BreakSession[];
+  localUpdated: boolean;
+  remoteNeedsUpdate: boolean;
+}
 
-  for (const s of local) {
-    map.set(s.id, s);
+function reconcileSessionSets(
+  local: BreakSession[],
+  remote: BreakSession[],
+  cloudLastReset: number = 0
+): ReconciliationResult {
+  const map = new Map<string, BreakSession>();
+  let localUpdated = false;
+  let remoteNeedsUpdate = false;
+
+  // Filter out any sessions prior to a manager reset timestamp
+  const validLocal = local.filter((s) => s.startTime >= cloudLastReset);
+  if (validLocal.length !== local.length) {
+    localUpdated = true;
   }
 
-  for (const inc of incoming) {
-    const existing = map.get(inc.id);
-    if (!existing) {
-      map.set(inc.id, inc);
-      changed = true;
+  const validRemote = remote.filter((s) => s.startTime >= cloudLastReset);
+
+  for (const s of validLocal) {
+    map.set(s.id, { ...s });
+  }
+
+  for (const r of validRemote) {
+    const l = map.get(r.id);
+    if (!l) {
+      // Remote has a session that local does not have
+      map.set(r.id, { ...r });
+      localUpdated = true;
     } else {
-      if (inc.endTime !== null && existing.endTime === null) {
-        map.set(inc.id, inc);
-        changed = true;
-      } else if (
-        inc.startTime !== existing.startTime ||
-        inc.alarmPlayed !== existing.alarmPlayed ||
-        inc.warningPlayed !== existing.warningPlayed ||
-        inc.overduePlayed !== existing.overduePlayed
-      ) {
-        map.set(inc.id, { ...existing, ...inc });
-        changed = true;
+      let mergedSession = { ...l };
+      let sessionModified = false;
+
+      // 1. If remote ended but local is still open
+      if (r.endTime !== null && l.endTime === null) {
+        mergedSession.endTime = r.endTime;
+        mergedSession.durationMinutes = r.durationMinutes;
+        sessionModified = true;
+        localUpdated = true;
+      } else if (l.endTime !== null && r.endTime === null) {
+        // Local has ended but remote is still open -> remote needs update
+        remoteNeedsUpdate = true;
+      }
+
+      // 2. Alarms state merge
+      if (r.warningPlayed && !l.warningPlayed) {
+        mergedSession.warningPlayed = true;
+        sessionModified = true;
+        localUpdated = true;
+      } else if (l.warningPlayed && !r.warningPlayed) {
+        remoteNeedsUpdate = true;
+      }
+
+      if (r.alarmPlayed && !l.alarmPlayed) {
+        mergedSession.alarmPlayed = true;
+        sessionModified = true;
+        localUpdated = true;
+      } else if (l.alarmPlayed && !r.alarmPlayed) {
+        remoteNeedsUpdate = true;
+      }
+
+      if (r.overduePlayed && !l.overduePlayed) {
+        mergedSession.overduePlayed = true;
+        sessionModified = true;
+        localUpdated = true;
+      } else if (l.overduePlayed && !r.overduePlayed) {
+        remoteNeedsUpdate = true;
+      }
+
+      // 3. Start time changes (e.g. simulation or time adjustment)
+      if (Math.abs(r.startTime - l.startTime) > 1000) {
+        if (r.startTime < l.startTime) {
+          mergedSession.startTime = r.startTime;
+          sessionModified = true;
+          localUpdated = true;
+        } else {
+          remoteNeedsUpdate = true;
+        }
+      }
+
+      if (sessionModified) {
+        map.set(r.id, mergedSession);
       }
     }
   }
 
-  return { merged: Array.from(map.values()), changed };
+  // Check if local has sessions that remote lacks
+  const remoteIdSet = new Set(validRemote.map((r) => r.id));
+  for (const s of validLocal) {
+    if (!remoteIdSet.has(s.id)) {
+      remoteNeedsUpdate = true;
+    }
+  }
+
+  return {
+    merged: Array.from(map.values()),
+    localUpdated,
+    remoteNeedsUpdate,
+  };
 }
 
+// In-flight guard to avoid concurrent conflicting PUT requests
+let isCloudPushing = false;
+
 // Broadcast to cloud directly so all devices and links receive it immediately
-export async function pushToCloudDirect(sessions: BreakSession[]) {
+export async function pushToCloudDirect(sessions: BreakSession[], lastResetTime: number = 0) {
+  if (isCloudPushing) return;
+  isCloudPushing = true;
   try {
     const payload = {
       name: 'InformaAlamSuteraStore',
       data: {
         sessions,
         lastUpdated: Date.now(),
+        lastResetTime: lastResetTime || 0,
       },
     };
-    fetch(CLOUD_SYNC_URL, {
+    await fetch(CLOUD_SYNC_URL, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    }).catch(() => {});
+    });
 
     fetch(NTFY_TOPIC_URL, {
       method: 'POST',
@@ -67,6 +146,8 @@ export async function pushToCloudDirect(sessions: BreakSession[]) {
     }).catch(() => {});
   } catch (e) {
     console.debug('Cloud push warning:', e);
+  } finally {
+    isCloudPushing = false;
   }
 }
 
@@ -140,23 +221,40 @@ export async function fetchServerState(): Promise<void> {
       fetch(CLOUD_SYNC_URL).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
 
-    let changed = false;
+    let localChanged = false;
+    let cloudShouldPush = false;
 
-    // 1. Merge server sessions
-    if (Array.isArray(sessRes)) {
-      const { merged, changed: ch } = mergeSessionArrays(memorySessions, sessRes);
-      if (ch) {
-        memorySessions = merged;
-        changed = true;
+    // 1. Reconcile with Cloud Hub (connecting all other phones, preview links, dev links)
+    if (cloudRes && cloudRes.data && Array.isArray(cloudRes.data.sessions)) {
+      const cloudSessions: BreakSession[] = cloudRes.data.sessions;
+      const lastResetTime = typeof cloudRes.data.lastResetTime === 'number' ? cloudRes.data.lastResetTime : 0;
+      const result = reconcileSessionSets(memorySessions, cloudSessions, lastResetTime);
+
+      if (result.localUpdated) {
+        memorySessions = result.merged;
+        localChanged = true;
       }
+      if (result.remoteNeedsUpdate) {
+        cloudShouldPush = true;
+      }
+    } else if (memorySessions.length > 0) {
+      // Cloud hub was unreachable or empty, but local has active sessions
+      cloudShouldPush = true;
     }
 
-    // 2. Merge cloud hub sessions (connecting all other phones, preview links, dev links)
-    if (cloudRes && cloudRes.data && Array.isArray(cloudRes.data.sessions)) {
-      const { merged, changed: ch } = mergeSessionArrays(memorySessions, cloudRes.data.sessions);
-      if (ch) {
-        memorySessions = merged;
-        changed = true;
+    // 2. Reconcile with local container if running
+    if (Array.isArray(sessRes)) {
+      const serverResult = reconcileSessionSets(memorySessions, sessRes);
+      if (serverResult.localUpdated) {
+        memorySessions = serverResult.merged;
+        localChanged = true;
+      }
+      if (serverResult.remoteNeedsUpdate) {
+        fetch('/api/sessions/sync-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessions: memorySessions }),
+        }).catch(() => {});
       }
     }
 
@@ -164,13 +262,18 @@ export async function fetchServerState(): Promise<void> {
       if (JSON.stringify(empRes) !== JSON.stringify(memoryEmployees)) {
         memoryEmployees = empRes;
         localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(empRes));
-        changed = true;
+        localChanged = true;
       }
     }
 
-    if (changed) {
+    if (localChanged) {
       localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(memorySessions));
       notifySubscribers();
+    }
+
+    // If local has sessions that the Cloud Hub doesn't know about yet, push them immediately!
+    if (cloudShouldPush && memorySessions.length > 0) {
+      pushToCloudDirect(memorySessions);
     }
   } catch (err) {
     console.debug('Background server sync warning:', err);
@@ -596,7 +699,9 @@ export function markOverduePlayed(sessionId: string): void {
 export function resetTodaySessions(): Promise<void> {
   const today = getTodayDateString();
   const remaining = getAllSessions().filter((s) => s.date !== today);
+  const resetNow = Date.now();
   saveSessions(remaining);
+  pushToCloudDirect(remaining, resetNow);
   return fetch('/api/sessions/reset-today', { method: 'POST' }).then(() => {}).catch(() => {});
 }
 
@@ -614,11 +719,12 @@ export function seedInitialDemoIfEmpty(): void {
 }
 
 export function clearAllSessions(): void {
+  const resetNow = Date.now();
   memorySessions = [];
   localStorage.removeItem(STORAGE_KEYS.SESSIONS);
   syncChannel?.postMessage({ type: 'SESSIONS_UPDATED', timestamp: Date.now() });
   notifySubscribers();
-  pushToCloudDirect([]);
+  pushToCloudDirect([], resetNow);
   fetch('/api/sessions/reset-today', { method: 'POST' }).catch(() => {});
 }
 

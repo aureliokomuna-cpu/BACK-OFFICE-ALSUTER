@@ -54,62 +54,119 @@ function loadState(): ServerState {
 
 let serverState = loadState();
 
-function mergeSessions(local: BreakSession[], incoming: BreakSession[]): { merged: BreakSession[]; changed: boolean } {
+function reconcileServerSessions(
+  local: BreakSession[],
+  remote: BreakSession[]
+): { merged: BreakSession[]; localUpdated: boolean; remoteNeedsUpdate: boolean } {
   const map = new Map<string, BreakSession>();
-  let changed = false;
+  let localUpdated = false;
+  let remoteNeedsUpdate = false;
 
   for (const s of local) {
-    map.set(s.id, s);
+    map.set(s.id, { ...s });
   }
 
-  for (const inc of incoming) {
-    const existing = map.get(inc.id);
-    if (!existing) {
-      map.set(inc.id, inc);
-      changed = true;
+  for (const r of remote) {
+    const l = map.get(r.id);
+    if (!l) {
+      map.set(r.id, { ...r });
+      localUpdated = true;
     } else {
-      // If incoming has an end time and local doesn't, or duration/alarms differ
-      if (inc.endTime !== null && existing.endTime === null) {
-        map.set(inc.id, inc);
+      let merged = { ...l };
+      let changed = false;
+
+      if (r.endTime !== null && l.endTime === null) {
+        merged.endTime = r.endTime;
+        merged.durationMinutes = r.durationMinutes;
         changed = true;
-      } else if (
-        inc.startTime !== existing.startTime ||
-        inc.alarmPlayed !== existing.alarmPlayed ||
-        inc.warningPlayed !== existing.warningPlayed ||
-        inc.overduePlayed !== existing.overduePlayed
-      ) {
-        map.set(inc.id, { ...existing, ...inc });
+        localUpdated = true;
+      } else if (l.endTime !== null && r.endTime === null) {
+        remoteNeedsUpdate = true;
+      }
+
+      if (r.alarmPlayed && !l.alarmPlayed) {
+        merged.alarmPlayed = true;
         changed = true;
+        localUpdated = true;
+      } else if (l.alarmPlayed && !r.alarmPlayed) {
+        remoteNeedsUpdate = true;
+      }
+
+      if (r.warningPlayed && !l.warningPlayed) {
+        merged.warningPlayed = true;
+        changed = true;
+        localUpdated = true;
+      } else if (l.warningPlayed && !r.warningPlayed) {
+        remoteNeedsUpdate = true;
+      }
+
+      if (r.overduePlayed && !l.overduePlayed) {
+        merged.overduePlayed = true;
+        changed = true;
+        localUpdated = true;
+      } else if (l.overduePlayed && !r.overduePlayed) {
+        remoteNeedsUpdate = true;
+      }
+
+      if (changed) {
+        map.set(r.id, merged);
       }
     }
   }
 
-  return { merged: Array.from(map.values()), changed };
+  const remoteIdSet = new Set(remote.map((r) => r.id));
+  for (const s of local) {
+    if (!remoteIdSet.has(s.id)) {
+      remoteNeedsUpdate = true;
+    }
+  }
+
+  return {
+    merged: Array.from(map.values()),
+    localUpdated,
+    remoteNeedsUpdate,
+  };
 }
+
+let isServerPushing = false;
 
 // Background Cloud Sync - Pull latest sessions from other container instances / mobile links
 async function pullFromCloudHub() {
   try {
     const res = await fetch(CLOUD_SYNC_URL);
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.warn('Cloud hub fetch failed:', res.status);
+      return;
+    }
     const body = await res.json();
     if (body && body.data && Array.isArray(body.data.sessions)) {
       const cloudSessions: BreakSession[] = body.data.sessions;
-      const { merged, changed } = mergeSessions(serverState.sessions, cloudSessions);
-      if (changed) {
+      const { merged, localUpdated, remoteNeedsUpdate } = reconcileServerSessions(
+        serverState.sessions,
+        cloudSessions
+      );
+
+      if (localUpdated) {
+        console.log(`[CloudSync] Updated local sessions from cloud: count=${merged.length}`);
         serverState.sessions = merged;
         serverState.lastUpdated = Date.now();
         fs.writeFileSync(DATA_FILE, JSON.stringify(serverState, null, 2), 'utf-8');
         notifySseClients();
       }
+
+      if (remoteNeedsUpdate && serverState.sessions.length > 0) {
+        pushToCloudHub(serverState);
+      }
     }
-  } catch {
-    // Ignore transient network errors
+  } catch (err) {
+    console.error('Cloud pull error:', err);
   }
 }
 
 // Background Cloud Sync - Push latest sessions to Cloud Hub & broadcast signal
 async function pushToCloudHub(state: ServerState) {
+  if (isServerPushing) return;
+  isServerPushing = true;
   try {
     const payload = {
       name: 'InformaAlamSuteraStore',
@@ -130,6 +187,8 @@ async function pushToCloudHub(state: ServerState) {
     }).catch(() => {});
   } catch (err) {
     console.error('Failed pushing to Cloud Hub:', err);
+  } finally {
+    isServerPushing = false;
   }
 }
 
@@ -250,8 +309,8 @@ async function startServer() {
   app.post('/api/sessions/sync-all', (req: Request, res: Response) => {
     const { sessions } = req.body;
     if (Array.isArray(sessions)) {
-      const { merged, changed } = mergeSessions(serverState.sessions, sessions);
-      if (changed) {
+      const { merged, localUpdated } = reconcileServerSessions(serverState.sessions, sessions);
+      if (localUpdated) {
         serverState.sessions = merged;
         saveState(serverState);
       }

@@ -290,7 +290,6 @@ var __dirname = path.dirname(__filename);
 var PORT = Number(process.env.PORT) || 3e3;
 var DATA_DIR = path.resolve(__dirname, "data_store");
 var DATA_FILE = path.resolve(DATA_DIR, "informa_state.json");
-var CLOUD_SYNC_URL = "https://api.restful-api.dev/objects/ff808181a09d98f701a0ccda16b27682";
 var NTFY_TOPIC_URL = "https://ntfy.sh/informa_alamsutera_sync_channel";
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -301,9 +300,14 @@ function loadState() {
       const raw = fs.readFileSync(DATA_FILE, "utf-8");
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.sessions)) {
+        const now = Date.now();
+        const cleanSessions = parsed.sessions.filter((s) => {
+          if (s.endTime === null && now - s.startTime > 24 * 3600 * 1e3) return false;
+          return true;
+        });
         return {
           employees: Array.isArray(parsed.employees) && parsed.employees.length > 0 ? parsed.employees : DEFAULT_EMPLOYEES,
-          sessions: parsed.sessions,
+          sessions: cleanSessions,
           lastUpdated: parsed.lastUpdated || Date.now()
         };
       }
@@ -324,10 +328,19 @@ function reconcileServerSessions(local, remote) {
   const map = /* @__PURE__ */ new Map();
   let localUpdated = false;
   let remoteNeedsUpdate = false;
-  for (const s of local) {
+  const now = Date.now();
+  const validLocal = local.filter((s) => {
+    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1e3) return false;
+    return true;
+  });
+  const validRemote = remote.filter((s) => {
+    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1e3) return false;
+    return true;
+  });
+  for (const s of validLocal) {
     map.set(s.id, { ...s });
   }
-  for (const r of remote) {
+  for (const r of validRemote) {
     const l = map.get(r.id);
     if (!l) {
       map.set(r.id, { ...r });
@@ -369,8 +382,8 @@ function reconcileServerSessions(local, remote) {
       }
     }
   }
-  const remoteIdSet = new Set(remote.map((r) => r.id));
-  for (const s of local) {
+  const remoteIdSet = new Set(validRemote.map((r) => r.id));
+  for (const s of validLocal) {
     if (!remoteIdSet.has(s.id)) {
       remoteNeedsUpdate = true;
     }
@@ -381,75 +394,20 @@ function reconcileServerSessions(local, remote) {
     remoteNeedsUpdate
   };
 }
-var isServerPushing = false;
-async function pullFromCloudHub() {
+function saveState(state) {
   try {
-    const res = await fetch(CLOUD_SYNC_URL);
-    if (!res.ok) {
-      console.warn("Cloud hub fetch failed:", res.status);
-      return;
-    }
-    const body = await res.json();
-    if (body && body.data && Array.isArray(body.data.sessions)) {
-      const cloudSessions = body.data.sessions;
-      const { merged, localUpdated, remoteNeedsUpdate } = reconcileServerSessions(
-        serverState.sessions,
-        cloudSessions
-      );
-      if (localUpdated) {
-        console.log(`[CloudSync] Updated local sessions from cloud: count=${merged.length}`);
-        serverState.sessions = merged;
-        serverState.lastUpdated = Date.now();
-        fs.writeFileSync(DATA_FILE, JSON.stringify(serverState, null, 2), "utf-8");
-        notifySseClients();
-      }
-      if (remoteNeedsUpdate && serverState.sessions.length > 0) {
-        pushToCloudHub(serverState);
-      }
-    }
-  } catch (err) {
-    console.error("Cloud pull error:", err);
-  }
-}
-async function pushToCloudHub(state) {
-  if (isServerPushing) return;
-  isServerPushing = true;
-  try {
-    const payload = {
-      name: "InformaAlamSuteraStore",
-      data: {
-        sessions: state.sessions,
-        lastUpdated: state.lastUpdated
-      }
-    };
-    await fetch(CLOUD_SYNC_URL, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+    state.lastUpdated = Date.now();
+    fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), "utf-8");
+    notifySseClients();
     fetch(NTFY_TOPIC_URL, {
       method: "POST",
       body: JSON.stringify({ type: "SYNC", lastUpdated: state.lastUpdated })
     }).catch(() => {
     });
   } catch (err) {
-    console.error("Failed pushing to Cloud Hub:", err);
-  } finally {
-    isServerPushing = false;
-  }
-}
-function saveState(state) {
-  try {
-    state.lastUpdated = Date.now();
-    fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), "utf-8");
-    notifySseClients();
-    pushToCloudHub(state);
-  } catch (err) {
     console.error("Failed writing state to disk:", err);
   }
 }
-pullFromCloudHub();
-setInterval(pullFromCloudHub, 2500);
 var sseClients = /* @__PURE__ */ new Set();
 function notifySseClients() {
   const payload = JSON.stringify({
@@ -469,11 +427,23 @@ function notifySseClients() {
   }
 }
 function getTodayString() {
-  const now = /* @__PURE__ */ new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  try {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    return formatter.format(/* @__PURE__ */ new Date());
+  } catch {
+    const now = /* @__PURE__ */ new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 6e4;
+    const wib = new Date(utc + 7 * 36e5);
+    const year = wib.getFullYear();
+    const month = String(wib.getMonth() + 1).padStart(2, "0");
+    const day = String(wib.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
 }
 async function startServer() {
   const app = express();
@@ -522,7 +492,7 @@ async function startServer() {
     let list = serverState.sessions;
     if (today === "1" || today === "true") {
       const todayStr = getTodayString();
-      list = list.filter((s) => s.date === todayStr);
+      list = list.filter((s) => s.date === todayStr || s.endTime === null);
     }
     if (typeof nip === "string" && nip.trim()) {
       list = list.filter((s) => s.nip === nip.trim());

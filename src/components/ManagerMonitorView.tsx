@@ -236,6 +236,37 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     }
   };
 
+  const myActiveBreak = useMemo(() => {
+    return sessions.find((s) => s.nip === currentUser.nip && s.endTime === null);
+  }, [sessions, currentUser.nip]);
+
+  const managerBreakCount = useMemo(() => {
+    return activeBreaks.filter(
+      (s) =>
+        s.jobTitle.toUpperCase().includes('MANAGER') ||
+        employees.find((e) => e.nip === s.nip)?.role === 'manager'
+    ).length;
+  }, [activeBreaks, employees]);
+  const staffBreakCount = activeBreaks.length - managerBreakCount;
+
+  const handleToggleMyBreak = () => {
+    if (myActiveBreak) {
+      const res = endStaffBreak(currentUser.nip);
+      if (res.success) {
+        setSessions(getTodaySessions());
+        onRefreshNeeded();
+      }
+    } else {
+      const res = startStaffBreak(currentUser);
+      if (res.success) {
+        setSessions(getTodaySessions());
+        onRefreshNeeded();
+      } else {
+        alert(res.message);
+      }
+    }
+  };
+
   const handleExportCSV = () => {
     const today = new Date().toISOString().split('T')[0];
     let csv = 'NIP,Nama Karyawan,Jabatan,Departemen,Toko,Sesi Istirahat,Jam Mulai,Jam Selesai,Durasi (Menit),Status\n';
@@ -263,6 +294,42 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
       {/* Speaker audio unlock banner */}
       <AudioUnlockBanner />
 
+      {/* Prominent Manager Active Break Banner */}
+      {myActiveBreak && (
+        <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white rounded-3xl p-5 shadow-lg border border-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+              <Coffee className="w-6 h-6 text-white animate-bounce" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider bg-white/25 px-2.5 py-0.5 rounded-full">
+                  👑 Manager Istirahat Aktif
+                </span>
+                <span className="text-xs font-black bg-amber-950/40 px-2.5 py-0.5 rounded-full">
+                  {myActiveBreak.sessionNumber === 1 ? 'Sesi 1 (Pertama)' : 'Sesi 2 (Kedua)'}
+                </span>
+              </div>
+              <p className="text-sm font-bold text-amber-50 mt-1">
+                Anda ({currentUser.name}) sedang istirahat &bull; Durasi berjalan:{' '}
+                <span className="font-mono text-white text-base font-black underline decoration-amber-300">
+                  {String(Math.floor((nowTime - myActiveBreak.startTime) / 60000)).padStart(2, '0')}:
+                  {String(Math.floor((nowTime - myActiveBreak.startTime) / 1000) % 60).padStart(2, '0')}
+                </span>
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleMyBreak}
+            className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-white hover:bg-amber-50 text-amber-950 font-black text-xs shadow-md active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+          >
+            <CheckCircle className="w-4 h-4 text-emerald-600" />
+            <span>Selesai Istirahat Saya</span>
+          </button>
+        </div>
+      )}
+
       {/* Header Info */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -284,6 +351,27 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
         {/* Action buttons */}
         <div className="flex items-center flex-wrap gap-2">
+          {/* Manager Quick Break Button */}
+          {myActiveBreak ? (
+            <button
+              type="button"
+              onClick={handleToggleMyBreak}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black shadow-md transition-all active:scale-95 cursor-pointer animate-pulse"
+            >
+              <Coffee className="w-4 h-4 text-amber-200" />
+              <span>Selesai Istirahat Saya ({Math.floor((nowTime - myActiveBreak.startTime) / 60000)}m)</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleToggleMyBreak}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0033A0] hover:bg-blue-900 text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              <Coffee className="w-4 h-4 text-[#FFD100]" />
+              <span>☕ Mulai Istirahat Saya</span>
+            </button>
+          )}
+
           {/* Auto-announce toggle */}
           <button
             type="button"
@@ -419,8 +507,8 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
             </span>
             <Coffee className={`w-5 h-5 ${breakCount > 5 ? 'text-red-600' : 'text-amber-600'}`} />
           </div>
-          <div className="text-4xl font-black text-slate-900 mt-2">
-            {breakCount} <span className="text-sm font-semibold text-slate-500">dari {totalStaffCount} staf</span>
+          <div className="text-3xl sm:text-4xl font-black text-slate-900 mt-2">
+            {breakCount} <span className="text-sm font-semibold text-slate-500">orang ({managerBreakCount} Manager, {staffBreakCount} Staf)</span>
           </div>
           <div className="flex items-center gap-1.5 mt-2">
             <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-[#0033A0]">
@@ -431,7 +519,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            {breakCount === 0 ? 'Semua staf standby di floor toko.' : `${totalStaffCount - breakCount} staf sedang aktif di floor.`}
+            {breakCount === 0 ? 'Semua staf & manager standby di toko.' : `${totalStaffCount - breakCount} staf & manager aktif melayani.`}
           </p>
         </div>
 
@@ -638,22 +726,32 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                 const wajibKeluarTime = new Date(s.startTime + 40 * 60 * 1000);
                 const wajibKeluarStr = wajibKeluarTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
 
+                const isManagerSession =
+                  s.jobTitle.toUpperCase().includes('MANAGER') ||
+                  employees.find((e) => e.nip === s.nip)?.role === 'manager';
+
                 // Color code threshold:
                 // Green: < 30 mins
                 // Yellow: 30 - 40 mins
                 // Red: > 40 mins
                 let statusColor = 'emerald';
                 let statusLabel = 'Waktu Aman';
-                let cardBg = 'bg-white border-emerald-200';
+                let cardBg = isManagerSession 
+                  ? 'bg-amber-50/40 border-amber-300 ring-2 ring-amber-400/60 shadow-md' 
+                  : 'bg-white border-emerald-200';
 
                 if (elapsedMinutes >= 40) {
                   statusColor = 'red';
                   statusLabel = 'MELEBIHI 40 MENIT (ALARM)';
-                  cardBg = 'bg-red-50/80 border-red-300 shadow-md';
+                  cardBg = isManagerSession
+                    ? 'bg-red-50/90 border-red-400 ring-2 ring-amber-400 shadow-lg'
+                    : 'bg-red-50/80 border-red-300 shadow-md';
                 } else if (elapsedMinutes >= 30) {
                   statusColor = 'amber';
                   statusLabel = 'Mendekati Batas (30-40 Mnt)';
-                  cardBg = 'bg-amber-50/80 border-amber-200';
+                  cardBg = isManagerSession
+                    ? 'bg-amber-100/70 border-amber-400 ring-2 ring-amber-400 shadow-md'
+                    : 'bg-amber-50/80 border-amber-200';
                 }
 
                 return (
@@ -664,15 +762,22 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                     <div>
                       {/* Top badge */}
                       <div className="flex items-center justify-between gap-1 mb-2">
-                        <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${
-                          statusColor === 'red'
-                            ? 'bg-red-600 text-white animate-pulse'
-                            : statusColor === 'amber'
-                            ? 'bg-amber-200 text-amber-900'
-                            : 'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {statusLabel}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${
+                            statusColor === 'red'
+                              ? 'bg-red-600 text-white animate-pulse'
+                              : statusColor === 'amber'
+                              ? 'bg-amber-200 text-amber-900'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {statusLabel}
+                          </span>
+                          {isManagerSession && (
+                            <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-2xs border border-amber-600/40 flex items-center gap-1">
+                              👑 MANAGER
+                            </span>
+                          )}
+                        </div>
                         <span
                           className={`text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-2xs ${
                             s.sessionNumber === 1
@@ -690,9 +795,16 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                       </div>
 
                       {/* Staff Name & Title */}
-                      <h4 className="text-base font-black text-slate-900 leading-snug">
-                        {s.employeeName}
-                      </h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-base font-black text-slate-900 leading-snug">
+                          {s.employeeName}
+                        </h4>
+                        {isManagerSession && (
+                          <span className="text-[11px] font-black text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-md shrink-0">
+                            Pimpinan
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-600 font-medium">
                         {s.jobTitle.toUpperCase() === 'SALES EXECUTIVE' ? 'SMT' : s.jobTitle} &bull; NIP:{' '}
                         <span className="font-mono">{s.nip}</span>
@@ -864,7 +976,16 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                   const wajibStr = new Date(s.startTime + 40 * 60 * 1000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
                   return (
                     <tr key={s.id} className="hover:bg-slate-50/80">
-                      <td className="p-3 font-bold text-slate-900">{s.employeeName}</td>
+                      <td className="p-3 font-bold text-slate-900">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{s.employeeName}</span>
+                          {(s.jobTitle.toUpperCase().includes('MANAGER') || employees.find((e) => e.nip === s.nip)?.role === 'manager') && (
+                            <span className="text-[9px] font-black bg-gradient-to-r from-amber-300 to-amber-400 text-slate-950 border border-amber-500 px-1.5 py-0.5 rounded-sm shadow-2xs">
+                              👑 MANAGER
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-3 font-mono">{s.nip}</td>
                       <td className="p-3">
                         <span className="font-medium">

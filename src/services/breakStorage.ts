@@ -9,7 +9,6 @@ const STORAGE_KEYS = {
   SERVER_SYNC_TIME: 'informa_sync_time_v1',
 };
 
-const CLOUD_SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0ccda16b27682';
 const NTFY_TOPIC_URL = 'https://ntfy.sh/informa_alamsutera_sync_channel';
 
 // Helper to reconcile local and remote sessions bidirectionally
@@ -28,13 +27,22 @@ function reconcileSessionSets(
   let localUpdated = false;
   let remoteNeedsUpdate = false;
 
-  // Filter out any sessions prior to a manager reset timestamp
-  const validLocal = local.filter((s) => s.startTime >= cloudLastReset);
+  // Filter out any sessions prior to a manager reset timestamp or older than 48 hours if ended
+  const now = Date.now();
+  const validLocal = local.filter((s) => {
+    if (s.startTime < cloudLastReset) return false;
+    if (s.endTime !== null && now - s.endTime > 48 * 3600 * 1000) return false;
+    return true;
+  });
   if (validLocal.length !== local.length) {
     localUpdated = true;
   }
 
-  const validRemote = remote.filter((s) => s.startTime >= cloudLastReset);
+  const validRemote = remote.filter((s) => {
+    if (s.startTime < cloudLastReset) return false;
+    if (s.endTime !== null && now - s.endTime > 48 * 3600 * 1000) return false;
+    return true;
+  });
 
   for (const s of validLocal) {
     map.set(s.id, { ...s });
@@ -118,26 +126,18 @@ function reconcileSessionSets(
   };
 }
 
-// In-flight guard to avoid concurrent conflicting PUT requests
-let isCloudPushing = false;
+// In-flight guard to avoid concurrent conflicting sync requests
+let isSyncPushing = false;
 
-// Broadcast to cloud directly so all devices and links receive it immediately
+// Broadcast to server directly and trigger pubsub signal
 export async function pushToCloudDirect(sessions: BreakSession[], lastResetTime: number = 0) {
-  if (isCloudPushing) return;
-  isCloudPushing = true;
+  if (isSyncPushing) return;
+  isSyncPushing = true;
   try {
-    const payload = {
-      name: 'InformaAlamSuteraStore',
-      data: {
-        sessions,
-        lastUpdated: Date.now(),
-        lastResetTime: lastResetTime || 0,
-      },
-    };
-    await fetch(CLOUD_SYNC_URL, {
-      method: 'PUT',
+    await fetch('/api/sessions/sync-all', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ sessions, lastResetTime: lastResetTime || 0 }),
     });
 
     fetch(NTFY_TOPIC_URL, {
@@ -145,9 +145,9 @@ export async function pushToCloudDirect(sessions: BreakSession[], lastResetTime:
       body: JSON.stringify({ type: 'SYNC', timestamp: Date.now() }),
     }).catch(() => {});
   } catch (e) {
-    console.debug('Cloud push warning:', e);
+    console.debug('Server push warning:', e);
   } finally {
-    isCloudPushing = false;
+    isSyncPushing = false;
   }
 }
 
@@ -182,12 +182,25 @@ function notifySubscribers() {
   });
 }
 
+// Standardized Indonesian Store Timezone (WIB: Asia/Jakarta)
 export function getTodayDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(new Date());
+  } catch {
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const wib = new Date(utc + 7 * 3600000);
+    const year = wib.getFullYear();
+    const month = String(wib.getMonth() + 1).padStart(2, '0');
+    const day = String(wib.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
 }
 
 // ---------------- Initialization & Server Sync ---------------- //
@@ -196,7 +209,13 @@ function loadInitialCache() {
   try {
     const savedSessions = localStorage.getItem(STORAGE_KEYS.SESSIONS);
     if (savedSessions) {
-      memorySessions = JSON.parse(savedSessions);
+      const parsed: BreakSession[] = JSON.parse(savedSessions);
+      // Clean up ancient abandoned breaks (> 24 hours ago)
+      const now = Date.now();
+      memorySessions = parsed.filter((s) => {
+        if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
+        return true;
+      });
     }
   } catch {}
 
@@ -212,75 +231,64 @@ function loadInitialCache() {
 
 loadInitialCache();
 
+export function applyAuthoritativeServerSessions(serverSessions: BreakSession[]) {
+  if (!Array.isArray(serverSessions)) return;
+
+  const now = Date.now();
+  const map = new Map<string, BreakSession>();
+
+  // Populate from server (authoritative)
+  for (const s of serverSessions) {
+    // Exclude abandoned breaks over 24h old
+    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) continue;
+    map.set(s.id, s);
+  }
+
+  // Preserve any local active session that was created within the last 8 seconds
+  // so the user experiences zero flicker before the server roundtrip finishes
+  for (const l of memorySessions) {
+    if (l.endTime === null && now - l.startTime < 8000 && !map.has(l.id)) {
+      map.set(l.id, l);
+    }
+  }
+
+  const merged = Array.from(map.values()).sort((a, b) => b.startTime - a.startTime);
+
+  // Check if anything actually changed
+  if (JSON.stringify(merged) !== JSON.stringify(memorySessions)) {
+    memorySessions = merged;
+    try {
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(merged));
+    } catch {}
+    notifySubscribers();
+  }
+}
+
 export async function fetchServerState(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    const [sessRes, empRes, cloudRes] = await Promise.all([
+    const [sessRes, empRes] = await Promise.all([
       fetch('/api/sessions').then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch('/api/employees').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch(CLOUD_SYNC_URL).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
 
-    let localChanged = false;
-    let cloudShouldPush = false;
-
-    // 1. Reconcile with Cloud Hub (connecting all other phones, preview links, dev links)
-    if (cloudRes && cloudRes.data && Array.isArray(cloudRes.data.sessions)) {
-      const cloudSessions: BreakSession[] = cloudRes.data.sessions;
-      const lastResetTime = typeof cloudRes.data.lastResetTime === 'number' ? cloudRes.data.lastResetTime : 0;
-      const result = reconcileSessionSets(memorySessions, cloudSessions, lastResetTime);
-
-      if (result.localUpdated) {
-        memorySessions = result.merged;
-        localChanged = true;
-      }
-      if (result.remoteNeedsUpdate) {
-        cloudShouldPush = true;
-      }
-    } else if (memorySessions.length > 0) {
-      // Cloud hub was unreachable or empty, but local has active sessions
-      cloudShouldPush = true;
-    }
-
-    // 2. Reconcile with local container if running
     if (Array.isArray(sessRes)) {
-      const serverResult = reconcileSessionSets(memorySessions, sessRes);
-      if (serverResult.localUpdated) {
-        memorySessions = serverResult.merged;
-        localChanged = true;
-      }
-      if (serverResult.remoteNeedsUpdate) {
-        fetch('/api/sessions/sync-all', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessions: memorySessions }),
-        }).catch(() => {});
-      }
+      applyAuthoritativeServerSessions(sessRes);
     }
 
     if (Array.isArray(empRes) && empRes.length > 0) {
       if (JSON.stringify(empRes) !== JSON.stringify(memoryEmployees)) {
         memoryEmployees = empRes;
         localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(empRes));
-        localChanged = true;
+        notifySubscribers();
       }
-    }
-
-    if (localChanged) {
-      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(memorySessions));
-      notifySubscribers();
-    }
-
-    // If local has sessions that the Cloud Hub doesn't know about yet, push them immediately!
-    if (cloudShouldPush && memorySessions.length > 0) {
-      pushToCloudDirect(memorySessions);
     }
   } catch (err) {
     console.debug('Background server sync warning:', err);
   }
 }
 
-// Start Real-Time Sync loop (EventSource + Fallback Polling)
+// Start Real-Time Sync loop (EventSource + Visibility Listener + Fallback Polling)
 export function initRealtimeSync(): void {
   if (isInitialized || typeof window === 'undefined') return;
   isInitialized = true;
@@ -295,26 +303,62 @@ export function initRealtimeSync(): void {
     };
   }
 
-  // Connect Local Server-Sent Events (SSE)
-  try {
-    const localSse = new EventSource('/api/events');
-    localSse.onmessage = () => {
-      fetchServerState();
-    };
-  } catch {}
+  // Connect Local Server-Sent Events (SSE) with auto-reconnect
+  let localSse: EventSource | null = null;
+  const connectSSE = () => {
+    try {
+      if (localSse) {
+        localSse.close();
+      }
+      localSse = new EventSource('/api/events');
+      localSse.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && Array.isArray(data.sessions)) {
+            applyAuthoritativeServerSessions(data.sessions);
+            if (Array.isArray(data.employees)) {
+              if (JSON.stringify(data.employees) !== JSON.stringify(memoryEmployees)) {
+                memoryEmployees = data.employees;
+                localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(data.employees));
+                notifySubscribers();
+              }
+            }
+          } else {
+            fetchServerState();
+          }
+        } catch {
+          fetchServerState();
+        }
+      };
 
-  // Connect Global Cloud PubSub SSE (guarantees cross-link & cross-phone instant delivery!)
-  try {
-    const cloudSse = new EventSource('https://ntfy.sh/informa_alamsutera_sync_channel/sse');
-    cloudSse.onmessage = () => {
-      fetchServerState();
-    };
-  } catch {}
+      localSse.onerror = () => {
+        localSse?.close();
+        setTimeout(connectSSE, 2000);
+      };
+    } catch {
+      setTimeout(connectSSE, 3000);
+    }
+  };
 
-  // Polling fallback every 1.5 seconds so all mobile devices stay in lockstep
+  connectSSE();
+
+  // Instant refresh when user returns to tab / unlocks smartphone screen
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      fetchServerState();
+    }
+  });
+  window.addEventListener('focus', () => {
+    fetchServerState();
+  });
+  window.addEventListener('pageshow', () => {
+    fetchServerState();
+  });
+
+  // Short polling fallback every 1000ms so all mobile devices stay 100% in lockstep
   setInterval(() => {
     fetchServerState();
-  }, 1500);
+  }, 1000);
 }
 
 // Auto-trigger on module load in client
@@ -404,27 +448,29 @@ export function getAllSessions(): BreakSession[] {
 
 export function saveSessions(sessions: BreakSession[]): void {
   memorySessions = sessions;
-  localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
+  try {
+    localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
+  } catch {}
   syncChannel?.postMessage({ type: 'SESSIONS_UPDATED', timestamp: Date.now() });
   notifySubscribers();
-  pushToCloudDirect(sessions);
-  // Also push batch to local server
-  fetch('/api/sessions/sync-all', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessions }),
-  }).catch(() => {});
 }
 
 export function getTodaySessions(): BreakSession[] {
   const today = getTodayDateString();
-  return getAllSessions().filter((s) => s.date === today);
+  const now = Date.now();
+  return getAllSessions().filter((s) => {
+    // Today's breaks
+    if (s.date === today) return true;
+    // Any active break currently ongoing (within last 16 hours) must ALWAYS be visible
+    if (s.endTime === null && now - s.startTime < 16 * 60 * 60 * 1000) return true;
+    return false;
+  });
 }
 
 export function getStaffDailySummary(nip: string, targetDate: string = getTodayDateString()): DailyStaffSummary {
   const allSessions = getAllSessions();
   const staffSessions = allSessions
-    .filter((s) => s.nip === nip && s.date === targetDate)
+    .filter((s) => s.nip === nip && (s.date === targetDate || s.endTime === null))
     .sort((a, b) => a.startTime - b.startTime);
 
   let totalMinutesUsed = 0;
@@ -493,16 +539,18 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
     employee.jobTitle.toUpperCase() === 'SALES EXECUTIVE' ? 'SMT' : employee.jobTitle;
 
   const currentSessionNumber = summary.breakCount + 1;
+  const canonicalId = 'brk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  const now = Date.now();
 
   const newSession: BreakSession = {
-    id: 'brk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+    id: canonicalId,
     nip: employee.nip,
     employeeName: employee.name,
     jobTitle: effectiveJobTitle,
     department: employee.department,
     storeZone: 'Informa Alam Sutera',
     date: today,
-    startTime: Date.now(),
+    startTime: now,
     endTime: null,
     durationMinutes: 0,
     sessionNumber: currentSessionNumber,
@@ -512,25 +560,24 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
   };
 
   const all = getAllSessions();
-  all.push(newSession);
+  all.unshift(newSession);
   saveSessions(all);
 
-  // Sync with central server
+  // Sync with central server using canonical ID
   fetch('/api/sessions/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nip: employee.nip }),
+    body: JSON.stringify({
+      nip: employee.nip,
+      id: canonicalId,
+      startTime: now,
+      sessionNumber: currentSessionNumber,
+    }),
   })
     .then((r) => r.json())
     .then((data) => {
-      if (data.session && data.session.id) {
-        // Replace temporary local ID with server session if needed
-        const currentList = getAllSessions();
-        const foundIdx = currentList.findIndex((s) => s.id === newSession.id);
-        if (foundIdx !== -1) {
-          currentList[foundIdx] = data.session;
-          saveSessions(currentList);
-        }
+      if (data.session) {
+        fetchServerState();
       }
     })
     .catch((err) => console.error('Failed to sync start session to server:', err));
@@ -546,9 +593,9 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
 
 // End Break (Optimistic + Backend Central Server Sync)
 export function endStaffBreak(nip: string): { success: boolean; message: string; durationMinutes?: number } {
-  const today = getTodayDateString();
   const all = getAllSessions();
-  const sessionIndex = all.findIndex((s) => s.nip === nip && s.date === today && s.endTime === null);
+  // Find any active session for this employee regardless of date mismatch
+  const sessionIndex = all.findIndex((s) => s.nip === nip && s.endTime === null);
 
   if (sessionIndex === -1) {
     return {
@@ -574,8 +621,10 @@ export function endStaffBreak(nip: string): { success: boolean; message: string;
   fetch('/api/sessions/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nip, sessionId: session.id }),
-  }).catch((err) => console.error('Failed to sync end session to server:', err));
+    body: JSON.stringify({ nip, sessionId: session.id, endTime: now }),
+  })
+    .then(() => fetchServerState())
+    .catch((err) => console.error('Failed to sync end session to server:', err));
 
   return {
     success: true,

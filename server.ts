@@ -13,7 +13,6 @@ const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = path.resolve(__dirname, 'data_store');
 const DATA_FILE = path.resolve(DATA_DIR, 'informa_state.json');
 
-const CLOUD_SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a0ccda16b27682';
 const NTFY_TOPIC_URL = 'https://ntfy.sh/informa_alamsutera_sync_channel';
 
 if (!fs.existsSync(DATA_DIR)) {
@@ -32,9 +31,16 @@ function loadState(): ServerState {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.sessions)) {
+        const now = Date.now();
+        // Clean out stale breaks older than 24h
+        const cleanSessions = (parsed.sessions as BreakSession[]).filter((s) => {
+          if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
+          return true;
+        });
+
         return {
           employees: Array.isArray(parsed.employees) && parsed.employees.length > 0 ? parsed.employees : DEFAULT_EMPLOYEES,
-          sessions: parsed.sessions,
+          sessions: cleanSessions,
           lastUpdated: parsed.lastUpdated || Date.now(),
         };
       }
@@ -62,11 +68,22 @@ function reconcileServerSessions(
   let localUpdated = false;
   let remoteNeedsUpdate = false;
 
-  for (const s of local) {
+  const now = Date.now();
+  const validLocal = local.filter((s) => {
+    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
+    return true;
+  });
+
+  const validRemote = remote.filter((s) => {
+    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
+    return true;
+  });
+
+  for (const s of validLocal) {
     map.set(s.id, { ...s });
   }
 
-  for (const r of remote) {
+  for (const r of validRemote) {
     const l = map.get(r.id);
     if (!l) {
       map.set(r.id, { ...r });
@@ -114,8 +131,8 @@ function reconcileServerSessions(
     }
   }
 
-  const remoteIdSet = new Set(remote.map((r) => r.id));
-  for (const s of local) {
+  const remoteIdSet = new Set(validRemote.map((r) => r.id));
+  for (const s of validLocal) {
     if (!remoteIdSet.has(s.id)) {
       remoteNeedsUpdate = true;
     }
@@ -128,84 +145,21 @@ function reconcileServerSessions(
   };
 }
 
-let isServerPushing = false;
-
-// Background Cloud Sync - Pull latest sessions from other container instances / mobile links
-async function pullFromCloudHub() {
-  try {
-    const res = await fetch(CLOUD_SYNC_URL);
-    if (!res.ok) {
-      console.warn('Cloud hub fetch failed:', res.status);
-      return;
-    }
-    const body = await res.json();
-    if (body && body.data && Array.isArray(body.data.sessions)) {
-      const cloudSessions: BreakSession[] = body.data.sessions;
-      const { merged, localUpdated, remoteNeedsUpdate } = reconcileServerSessions(
-        serverState.sessions,
-        cloudSessions
-      );
-
-      if (localUpdated) {
-        console.log(`[CloudSync] Updated local sessions from cloud: count=${merged.length}`);
-        serverState.sessions = merged;
-        serverState.lastUpdated = Date.now();
-        fs.writeFileSync(DATA_FILE, JSON.stringify(serverState, null, 2), 'utf-8');
-        notifySseClients();
-      }
-
-      if (remoteNeedsUpdate && serverState.sessions.length > 0) {
-        pushToCloudHub(serverState);
-      }
-    }
-  } catch (err) {
-    console.error('Cloud pull error:', err);
-  }
-}
-
-// Background Cloud Sync - Push latest sessions to Cloud Hub & broadcast signal
-async function pushToCloudHub(state: ServerState) {
-  if (isServerPushing) return;
-  isServerPushing = true;
-  try {
-    const payload = {
-      name: 'InformaAlamSuteraStore',
-      data: {
-        sessions: state.sessions,
-        lastUpdated: state.lastUpdated,
-      },
-    };
-    await fetch(CLOUD_SYNC_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    fetch(NTFY_TOPIC_URL, {
-      method: 'POST',
-      body: JSON.stringify({ type: 'SYNC', lastUpdated: state.lastUpdated }),
-    }).catch(() => {});
-  } catch (err) {
-    console.error('Failed pushing to Cloud Hub:', err);
-  } finally {
-    isServerPushing = false;
-  }
-}
-
 function saveState(state: ServerState) {
   try {
     state.lastUpdated = Date.now();
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
     notifySseClients();
-    pushToCloudHub(state);
+
+    // Broadcast signal via ntfy.sh
+    fetch(NTFY_TOPIC_URL, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'SYNC', lastUpdated: state.lastUpdated }),
+    }).catch(() => {});
   } catch (err) {
     console.error('Failed writing state to disk:', err);
   }
 }
-
-// Start cloud polling
-pullFromCloudHub();
-setInterval(pullFromCloudHub, 2500);
 
 // ---------------- Server-Sent Events (SSE) for Real-Time Multi-Device Sync ---------------- //
 const sseClients = new Set<Response>();
@@ -214,6 +168,8 @@ function notifySseClients() {
   const payload = JSON.stringify({
     type: 'SYNC',
     lastUpdated: serverState.lastUpdated,
+    sessions: serverState.sessions,
+    employees: serverState.employees,
     sessionsCount: serverState.sessions.length,
     activeCount: serverState.sessions.filter((s) => s.endTime === null).length,
   });
@@ -227,33 +183,72 @@ function notifySseClients() {
   }
 }
 
+// Always compute date in WIB (Asia/Jakarta)
 function getTodayString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(new Date());
+  } catch {
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const wib = new Date(utc + 7 * 3600000);
+    const year = wib.getFullYear();
+    const month = String(wib.getMonth() + 1).padStart(2, '0');
+    const day = String(wib.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
 }
 
 async function startServer() {
   const app = express();
+
+  // Permissive CORS for cross-device webviews & PWA
+  app.use((req: Request, res: Response, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json({ limit: '10mb' }));
 
-  // SSE Stream endpoint
+  // SSE Stream endpoint for real-time live sync across devices
   app.get('/api/events', (req: Request, res: Response) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
     sseClients.add(res);
 
-    // Initial event
-    res.write(`data: ${JSON.stringify({ type: 'CONNECTED', lastUpdated: serverState.lastUpdated })}\n\n`);
+    // Initial event with full state
+    const initialPayload = JSON.stringify({
+      type: 'SYNC',
+      lastUpdated: serverState.lastUpdated,
+      sessions: serverState.sessions,
+      employees: serverState.employees,
+      sessionsCount: serverState.sessions.length,
+      activeCount: serverState.sessions.filter((s) => s.endTime === null).length,
+    });
+    res.write(`data: ${initialPayload}\n\n`);
 
     const keepAlive = setInterval(() => {
-      res.write(': keepalive\n\n');
-    }, 20000);
+      try {
+        res.write(': keepalive\n\n');
+      } catch {
+        clearInterval(keepAlive);
+        sseClients.delete(res);
+      }
+    }, 5000);
 
     req.on('close', () => {
       clearInterval(keepAlive);
@@ -269,6 +264,8 @@ async function startServer() {
       lastUpdated: serverState.lastUpdated,
       today: getTodayString(),
       activeBreaks: serverState.sessions.filter((s) => s.endTime === null).length,
+      totalSessions: serverState.sessions.length,
+      connectedClients: sseClients.size,
     });
   });
 
@@ -296,7 +293,7 @@ async function startServer() {
 
     if (today === '1' || today === 'true') {
       const todayStr = getTodayString();
-      list = list.filter((s) => s.date === todayStr);
+      list = list.filter((s) => s.date === todayStr || s.endTime === null);
     }
     if (typeof nip === 'string' && nip.trim()) {
       list = list.filter((s) => s.nip === nip.trim());
@@ -319,9 +316,9 @@ async function startServer() {
     res.status(400).json({ success: false, message: 'Invalid sessions payload' });
   });
 
-  // Start Break Session
+  // Start Break Session (Canonical ID supported)
   app.post('/api/sessions/start', (req: Request, res: Response) => {
-    const { nip } = req.body;
+    const { nip, id, startTime, sessionNumber } = req.body;
     if (!nip) {
       return res.status(400).json({ success: false, message: 'NIP wajib diisi.' });
     }
@@ -337,38 +334,45 @@ async function startServer() {
     }
 
     const today = getTodayString();
-    const staffSessionsToday = serverState.sessions.filter((s) => s.nip === employee.nip && s.date === today);
+    const staffSessionsToday = serverState.sessions.filter((s) => s.nip === employee.nip && (s.date === today || s.endTime === null));
 
-    // Check if currently on break
+    // Check if already currently on break
     const active = staffSessionsToday.find((s) => s.endTime === null);
     if (active) {
-      return res.status(400).json({
-        success: false,
-        message: 'Anda sedang dalam sesi istirahat aktif! Selesaikan sesi ini terlebih dahulu.',
+      return res.json({
+        success: true,
+        message: 'Anda sedang dalam sesi istirahat aktif.',
         session: active,
       });
     }
 
-    if (staffSessionsToday.length >= 2) {
+    const completedToday = staffSessionsToday.filter((s) => s.endTime !== null);
+    if (completedToday.length >= 2) {
       return res.status(400).json({
         success: false,
         message: 'Batas istirahat harian tercapai! Anda sudah mengambil jatah 2x istirahat hari ini.',
       });
     }
 
-    const currentSessionNumber = staffSessionsToday.length + 1;
+    const currentSessionNumber = typeof sessionNumber === 'number' ? sessionNumber : completedToday.length + 1;
     const effectiveJobTitle =
       employee.jobTitle.toUpperCase() === 'SALES EXECUTIVE' ? 'SMT' : employee.jobTitle;
 
+    const newSessionId = typeof id === 'string' && id.startsWith('brk_')
+      ? id
+      : 'brk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
+    const now = typeof startTime === 'number' ? startTime : Date.now();
+
     const newSession: BreakSession = {
-      id: 'brk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+      id: newSessionId,
       nip: employee.nip,
       employeeName: employee.name,
       jobTitle: effectiveJobTitle,
       department: employee.department,
       storeZone: 'Informa Alam Sutera',
       date: today,
-      startTime: Date.now(),
+      startTime: now,
       endTime: null,
       durationMinutes: 0,
       sessionNumber: currentSessionNumber,
@@ -390,12 +394,12 @@ async function startServer() {
 
   // End Break Session
   app.post('/api/sessions/end', (req: Request, res: Response) => {
-    const { nip, sessionId } = req.body;
+    const { nip, sessionId, endTime } = req.body;
     const today = getTodayString();
 
     const idx = serverState.sessions.findIndex((s) => {
-      if (sessionId) return s.id === sessionId && s.endTime === null;
-      if (nip) return s.nip === String(nip).trim() && s.date === today && s.endTime === null;
+      if (sessionId) return s.id === sessionId;
+      if (nip) return s.nip === String(nip).trim() && s.endTime === null;
       return false;
     });
 
@@ -406,14 +410,25 @@ async function startServer() {
       });
     }
 
-    const now = Date.now();
     const session = serverState.sessions[idx];
-    const durationMs = now - session.startTime;
+
+    // If already ended, return existing completed session
+    if (session.endTime !== null) {
+      return res.json({
+        success: true,
+        message: `Istirahat selesai! Durasi sesi: ${session.durationMinutes} menit.`,
+        session,
+        durationMinutes: session.durationMinutes,
+      });
+    }
+
+    const finishTime = typeof endTime === 'number' ? endTime : Date.now();
+    const durationMs = finishTime - session.startTime;
     const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
 
     serverState.sessions[idx] = {
       ...session,
-      endTime: now,
+      endTime: finishTime,
       durationMinutes,
     };
     saveState(serverState);

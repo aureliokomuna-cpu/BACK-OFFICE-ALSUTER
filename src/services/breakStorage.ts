@@ -2,6 +2,7 @@
 // Syncs seamlessly across multiple phones (HP Manager & HP Staff) and web browser tabs in real-time
 import { Employee, BreakSession, DailyStaffSummary } from '../types';
 import { DEFAULT_EMPLOYEES, cleanEmployeeName } from '../data/defaultEmployees';
+import { cloudSync } from './cloudSyncService';
 
 const STORAGE_KEYS = {
   EMPLOYEES: 'informa_employees_v1',
@@ -264,6 +265,71 @@ export function applyAuthoritativeServerSessions(serverSessions: BreakSession[])
   }
 }
 
+export function reconcileWithCloudSessions(cloudSessions: BreakSession[]): void {
+  if (!Array.isArray(cloudSessions)) return;
+
+  const now = Date.now();
+  const sessionMap = new Map<string, BreakSession>();
+
+  // 1. Existing local sessions
+  for (const s of memorySessions) {
+    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) continue;
+    sessionMap.set(s.id, s);
+  }
+
+  // 2. Merge with incoming Cloud / MQTT sessions
+  let hasChanges = false;
+  for (const remote of cloudSessions) {
+    if (remote.endTime === null && now - remote.startTime > 24 * 3600 * 1000) continue;
+
+    const local = sessionMap.get(remote.id);
+    if (!local) {
+      sessionMap.set(remote.id, remote);
+      hasChanges = true;
+    } else {
+      // If either has finished (endTime is set), finished state always wins
+      if (remote.endTime !== null && local.endTime === null) {
+        sessionMap.set(remote.id, remote);
+        hasChanges = true;
+      } else if (local.endTime !== null && remote.endTime === null) {
+        // Keep local finished
+      } else {
+        // Keep freshest or remote
+        if (JSON.stringify(local) !== JSON.stringify(remote)) {
+          sessionMap.set(remote.id, { ...local, ...remote });
+          hasChanges = true;
+        }
+      }
+    }
+  }
+
+  const merged = Array.from(sessionMap.values()).sort((a, b) => b.startTime - a.startTime);
+
+  if (hasChanges || JSON.stringify(merged) !== JSON.stringify(memorySessions)) {
+    memorySessions = merged;
+    try {
+      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(merged));
+    } catch {}
+    notifySubscribers();
+  }
+}
+
+// Connect CloudSync listener immediately
+cloudSync.onSync((cloudSessions, cloudEmployees) => {
+  if (Array.isArray(cloudSessions)) {
+    reconcileWithCloudSessions(cloudSessions);
+  }
+  if (Array.isArray(cloudEmployees) && cloudEmployees.length > 0) {
+    if (JSON.stringify(cloudEmployees) !== JSON.stringify(memoryEmployees)) {
+      memoryEmployees = cloudEmployees;
+      try {
+        localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(cloudEmployees));
+      } catch {}
+      notifySubscribers();
+    }
+  }
+});
+
 export async function fetchServerState(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
@@ -359,6 +425,25 @@ export function initRealtimeSync(): void {
   setInterval(() => {
     fetchServerState();
   }, 1000);
+
+  // Initialize Global MQTT Cloud Synchronization
+  try {
+    cloudSync.init();
+    // If local device already has active break session, announce to cloud after connection
+    setTimeout(() => {
+      const all = getAllSessions();
+      const active = all.filter((s) => s.endTime === null);
+      if (active.length > 0) {
+        cloudSync.publishState(all, memoryEmployees);
+      }
+    }, 1500);
+  } catch (e) {
+    console.debug('CloudSync init note:', e);
+  }
+}
+
+export function broadcastCurrentStateToCloud(): void {
+  cloudSync.publishState(getAllSessions(), memoryEmployees);
 }
 
 // Auto-trigger on module load in client
@@ -453,6 +538,16 @@ export function saveSessions(sessions: BreakSession[]): void {
   } catch {}
   syncChannel?.postMessage({ type: 'SESSIONS_UPDATED', timestamp: Date.now() });
   notifySubscribers();
+
+  // Instant real-time broadcast to all other phones & managers across the internet
+  cloudSync.publishState(sessions, memoryEmployees);
+
+  // Also sync to local backend if running in full-stack mode
+  fetch('/api/sessions/sync-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessions }),
+  }).catch(() => {});
 }
 
 export function getTodaySessions(): BreakSession[] {

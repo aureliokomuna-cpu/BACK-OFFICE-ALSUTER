@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, Settings, ShieldCheck, UserCheck, Clock, RefreshCw } from 'lucide-react';
+import { LogOut, Settings, ShieldCheck, UserCheck, Clock, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { Employee } from '../types';
-import { fetchServerState } from '../services/breakStorage';
+import { fetchServerState, broadcastCurrentStateToCloud } from '../services/breakStorage';
+import { cloudSync } from '../services/cloudSyncService';
 
 interface NavbarProps {
   currentUser: Employee | null;
@@ -21,6 +22,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [currentTimeStr, setCurrentTimeStr] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<string>('');
+  const [cloudStatus, setCloudStatus] = useState<'connected' | 'connecting' | 'disconnected' | 'error'>('connecting');
+
+  useEffect(() => {
+    const unsub = cloudSync.onStatusChange((status) => {
+      setCloudStatus(status);
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const updateTime = () => {
@@ -40,10 +49,45 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const handleManualSync = async () => {
     setIsSyncing(true);
+    cloudSync.init();
+    broadcastCurrentStateToCloud();
     await fetchServerState();
     setIsSyncing(false);
     setSyncNotice('Sinkron!');
     setTimeout(() => setSyncNotice(''), 2000);
+  };
+
+  const getStatusBadge = () => {
+    if (syncNotice) {
+      return (
+        <span className="text-emerald-300 font-bold flex items-center gap-1">
+          <RefreshCw className="w-3 h-3 animate-spin text-emerald-300" />
+          {syncNotice}
+        </span>
+      );
+    }
+    if (cloudStatus === 'connected') {
+      return (
+        <span className="text-emerald-200 font-bold flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Cloud Sync Aktif</span>
+        </span>
+      );
+    }
+    if (cloudStatus === 'connecting') {
+      return (
+        <span className="text-amber-200 font-bold flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+          <span>Menghubungkan...</span>
+        </span>
+      );
+    }
+    return (
+      <span className="text-red-200 font-bold flex items-center gap-1.5">
+        <WifiOff className="w-3 h-3 text-red-300" />
+        <span>Hubungkan Ulang</span>
+      </span>
+    );
   };
 
   return (
@@ -73,12 +117,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={handleManualSync}
-            title="Klik untuk sinkronisasi paksa semua HP & Manager"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-[11px] font-bold text-emerald-200 transition-all active:scale-95 cursor-pointer"
+            title="Klik untuk sinkronisasi paksa semua HP & Manager via Cloud MQTT"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-all active:scale-95 cursor-pointer ${
+              cloudStatus === 'connected'
+                ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/40 text-emerald-200'
+                : cloudStatus === 'connecting'
+                ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/40 text-amber-200'
+                : 'bg-red-500/20 hover:bg-red-500/30 border-red-400/40 text-red-200'
+            }`}
           >
-            <span className={`w-2 h-2 rounded-full bg-emerald-400 ${isSyncing ? 'animate-spin' : 'animate-pulse'}`}></span>
-            <span>{syncNotice || 'Cloud Sync Aktif'}</span>
-            <RefreshCw className={`w-3 h-3 text-emerald-300 ${isSyncing ? 'animate-spin' : ''}`} />
+            {getStatusBadge()}
+            <RefreshCw className={`w-3 h-3 ml-0.5 opacity-80 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
 
           <div className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-xs text-blue-100">

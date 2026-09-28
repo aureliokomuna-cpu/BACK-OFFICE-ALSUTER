@@ -90,13 +90,11 @@ export default function App() {
           />
         ) : activeView === 'manager' ? (
           <ManagerMonitorView
-            key={`mgr_${refreshKey}`}
             currentUser={currentUser}
             onRefreshNeeded={() => setRefreshKey((prev) => prev + 1)}
           />
         ) : (
           <StaffBreakView
-            key={`stf_${refreshKey}`}
             currentUser={currentUser}
             onSessionChanged={() => setRefreshKey((prev) => prev + 1)}
           />

@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import mqtt, { type MqttClient } from 'mqtt';
 import { DEFAULT_EMPLOYEES, cleanEmployeeName } from './src/data/defaultEmployees.js';
 import { Employee, BreakSession } from './src/types.js';
 
@@ -13,7 +14,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = path.resolve(__dirname, 'data_store');
 const DATA_FILE = path.resolve(DATA_DIR, 'informa_state.json');
 
-const NTFY_TOPIC_URL = 'https://ntfy.sh/informa_alamsutera_sync_channel';
+const SYNC_TOPIC = 'informa/alamsutera/v1/sessions_state';
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -23,6 +24,21 @@ interface ServerState {
   employees: Employee[];
   sessions: BreakSession[];
   lastUpdated: number;
+  lastResetTime?: number;
+}
+
+function cleanStaleSessions(sessions: BreakSession[]): BreakSession[] {
+  const now = Date.now();
+  return sessions.map((s) => {
+    if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
+      return {
+        ...s,
+        endTime: s.startTime + 40 * 60 * 1000,
+        durationMinutes: 40,
+      };
+    }
+    return s;
+  });
 }
 
 function loadState(): ServerState {
@@ -31,17 +47,12 @@ function loadState(): ServerState {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.sessions)) {
-        const now = Date.now();
-        // Clean out stale breaks older than 24h
-        const cleanSessions = (parsed.sessions as BreakSession[]).filter((s) => {
-          if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
-          return true;
-        });
-
+        const cleaned = cleanStaleSessions(parsed.sessions as BreakSession[]);
         return {
           employees: Array.isArray(parsed.employees) && parsed.employees.length > 0 ? parsed.employees : DEFAULT_EMPLOYEES,
-          sessions: cleanSessions,
+          sessions: cleaned,
           lastUpdated: parsed.lastUpdated || Date.now(),
+          lastResetTime: parsed.lastResetTime || 0,
         };
       }
     }
@@ -53,6 +64,7 @@ function loadState(): ServerState {
     employees: DEFAULT_EMPLOYEES,
     sessions: [],
     lastUpdated: Date.now(),
+    lastResetTime: 0,
   };
   saveState(initial);
   return initial;
@@ -62,20 +74,22 @@ let serverState = loadState();
 
 function reconcileServerSessions(
   local: BreakSession[],
-  remote: BreakSession[]
+  remote: BreakSession[],
+  resetThreshold: number = 0
 ): { merged: BreakSession[]; localUpdated: boolean; remoteNeedsUpdate: boolean } {
   const map = new Map<string, BreakSession>();
   let localUpdated = false;
   let remoteNeedsUpdate = false;
 
-  const now = Date.now();
-  const validLocal = local.filter((s) => {
-    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
+  const effectiveReset = Math.max(resetThreshold, serverState.lastResetTime || 0);
+
+  const validLocal = cleanStaleSessions(local).filter((s) => {
+    if (effectiveReset > 0 && s.startTime < effectiveReset) return false;
     return true;
   });
 
-  const validRemote = remote.filter((s) => {
-    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
+  const validRemote = cleanStaleSessions(remote).filter((s) => {
+    if (effectiveReset > 0 && s.startTime < effectiveReset) return false;
     return true;
   });
 
@@ -92,6 +106,7 @@ function reconcileServerSessions(
       let merged = { ...l };
       let changed = false;
 
+      // 1. End time: finished always wins
       if (r.endTime !== null && l.endTime === null) {
         merged.endTime = r.endTime;
         merged.durationMinutes = r.durationMinutes;
@@ -101,6 +116,14 @@ function reconcileServerSessions(
         remoteNeedsUpdate = true;
       }
 
+      // 2. Start time adjustments (manager simulation/fast-forward)
+      if (Math.abs(r.startTime - l.startTime) > 1000) {
+        merged.startTime = r.startTime;
+        changed = true;
+        localUpdated = true;
+      }
+
+      // 3. Audio alarm flags: once true, stay true
       if (r.alarmPlayed && !l.alarmPlayed) {
         merged.alarmPlayed = true;
         changed = true;
@@ -145,17 +168,69 @@ function reconcileServerSessions(
   };
 }
 
+// ---------------- Global MQTT Broker Integration for Cross-Device Sync ---------------- //
+let serverMqttClient: MqttClient | null = null;
+try {
+  serverMqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+    clientId: 'srv_informa_' + Math.random().toString(16).slice(2),
+    clean: true,
+    reconnectPeriod: 4000,
+  });
+
+  serverMqttClient.on('connect', () => {
+    console.log('[Server MQTT] Connected to Cloud Broker');
+    serverMqttClient?.subscribe(SYNC_TOPIC, { qos: 1 });
+  });
+
+  serverMqttClient.on('message', (topic: string, message: Buffer) => {
+    if (topic === SYNC_TOPIC) {
+      try {
+        const payload = JSON.parse(message.toString());
+        if (payload && Array.isArray(payload.sessions) && payload.senderId !== 'server_backend') {
+          const { merged, localUpdated } = reconcileServerSessions(serverState.sessions, payload.sessions);
+          if (localUpdated) {
+            serverState.sessions = merged;
+            serverState.lastUpdated = Date.now();
+            try {
+              fs.writeFileSync(DATA_FILE, JSON.stringify(serverState, null, 2), 'utf-8');
+            } catch {}
+            notifySseClients();
+          }
+        }
+      } catch {}
+    }
+  });
+
+  serverMqttClient.on('error', (err) => {
+    console.debug('[Server MQTT] Notice:', err.message);
+  });
+} catch (e) {
+  console.debug('[Server MQTT] Init notice:', e);
+}
+
 function saveState(state: ServerState) {
   try {
     state.lastUpdated = Date.now();
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
     notifySseClients();
 
-    // Broadcast signal via ntfy.sh
-    fetch(NTFY_TOPIC_URL, {
-      method: 'POST',
-      body: JSON.stringify({ type: 'SYNC', lastUpdated: state.lastUpdated }),
-    }).catch(() => {});
+    // Broadcast retained state to cloud broker for all connected phones & managers
+    if (serverMqttClient && serverMqttClient.connected) {
+      try {
+        serverMqttClient.publish(
+          SYNC_TOPIC,
+          JSON.stringify({
+            type: 'SYNC_STATE',
+            sessions: state.sessions,
+            employees: state.employees,
+            updatedAt: state.lastUpdated,
+            lastResetTime: state.lastResetTime || 0,
+            senderId: 'server_backend',
+          }),
+          { retain: true, qos: 1 }
+        );
+      } catch {}
+    }
   } catch (err) {
     console.error('Failed writing state to disk:', err);
   }
@@ -168,6 +243,8 @@ function notifySseClients() {
   const payload = JSON.stringify({
     type: 'SYNC',
     lastUpdated: serverState.lastUpdated,
+    lastResetTime: serverState.lastResetTime || 0,
+    serverTime: Date.now(),
     sessions: serverState.sessions,
     employees: serverState.employees,
     sessionsCount: serverState.sessions.length,
@@ -269,6 +346,21 @@ async function startServer() {
     });
   });
 
+  // Get Complete State (Atomic multi-device snapshot)
+  app.get('/api/state', (req: Request, res: Response) => {
+    serverState.sessions = cleanStaleSessions(serverState.sessions);
+    res.json({
+      success: true,
+      lastUpdated: serverState.lastUpdated,
+      lastResetTime: serverState.lastResetTime || 0,
+      serverTime: Date.now(),
+      today: getTodayString(),
+      sessions: serverState.sessions,
+      employees: serverState.employees,
+      activeCount: serverState.sessions.filter((s) => s.endTime === null).length,
+    });
+  });
+
   // Get Employees
   app.get('/api/employees', (req: Request, res: Response) => {
     res.json(serverState.employees);
@@ -288,6 +380,7 @@ async function startServer() {
 
   // Get Sessions (optional ?today=1 or ?nip=...)
   app.get('/api/sessions', (req: Request, res: Response) => {
+    serverState.sessions = cleanStaleSessions(serverState.sessions);
     const { today, nip } = req.query;
     let list = serverState.sessions;
 
@@ -304,14 +397,27 @@ async function startServer() {
 
   // Batch sync sessions across instances
   app.post('/api/sessions/sync-all', (req: Request, res: Response) => {
-    const { sessions } = req.body;
+    const { sessions, lastResetTime } = req.body;
     if (Array.isArray(sessions)) {
-      const { merged, localUpdated } = reconcileServerSessions(serverState.sessions, sessions);
+      const { merged, localUpdated } = reconcileServerSessions(
+        serverState.sessions,
+        sessions,
+        typeof lastResetTime === 'number' ? lastResetTime : 0
+      );
+      if (typeof lastResetTime === 'number' && lastResetTime > (serverState.lastResetTime || 0)) {
+        serverState.lastResetTime = lastResetTime;
+      }
       if (localUpdated) {
         serverState.sessions = merged;
         saveState(serverState);
       }
-      return res.json({ success: true, count: serverState.sessions.length, sessions: serverState.sessions });
+      return res.json({
+        success: true,
+        count: serverState.sessions.length,
+        sessions: serverState.sessions,
+        lastUpdated: serverState.lastUpdated,
+        lastResetTime: serverState.lastResetTime || 0,
+      });
     }
     res.status(400).json({ success: false, message: 'Invalid sessions payload' });
   });
@@ -331,6 +437,21 @@ async function startServer() {
     );
     if (!employee) {
       return res.status(404).json({ success: false, message: 'Karyawan tidak ditemukan.' });
+    }
+
+    // Clean any stale sessions first
+    serverState.sessions = cleanStaleSessions(serverState.sessions);
+
+    // If session with this ID already exists, return it cleanly
+    if (id) {
+      const existing = serverState.sessions.find((s) => s.id === id);
+      if (existing) {
+        return res.json({
+          success: true,
+          message: 'Sesi istirahat sudah tercatat.',
+          session: existing,
+        });
+      }
     }
 
     const today = getTodayString();
@@ -517,8 +638,25 @@ async function startServer() {
   app.post('/api/sessions/reset-today', (req: Request, res: Response) => {
     const today = getTodayString();
     serverState.sessions = serverState.sessions.filter((s) => s.date !== today);
+    serverState.lastResetTime = Date.now();
     saveState(serverState);
-    res.json({ success: true, message: 'Data istirahat hari ini berhasil direset.' });
+    res.json({
+      success: true,
+      message: 'Data istirahat hari ini berhasil direset.',
+      lastResetTime: serverState.lastResetTime,
+    });
+  });
+
+  // Clear All Sessions completely
+  app.post('/api/sessions/clear-all', (req: Request, res: Response) => {
+    serverState.sessions = [];
+    serverState.lastResetTime = Date.now();
+    saveState(serverState);
+    res.json({
+      success: true,
+      message: 'Seluruh riwayat sesi berhasil dikosongkan.',
+      lastResetTime: serverState.lastResetTime,
+    });
   });
 
   // ---------------- Frontend Integration ---------------- //

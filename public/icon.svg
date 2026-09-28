@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0033A0" />
+  <circle cx="410" cy="102" r="32" fill="#FFD100" />
+  <g fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="82" letter-spacing="4">
+    <text x="256" y="270" text-anchor="middle">INFORMA</text>
+  </g>
+  <rect x="120" y="320" width="272" height="40" rx="20" fill="#FFD100" />
+  <text x="256" y="348" text-anchor="middle" fill="#0033A0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="22" letter-spacing="2">ALAM SUTERA</text>
+  <!-- Coffee Cup / Break Symbol -->
+  <path d="M 230 400 L 282 400 A 24 24 0 0 1 306 424 L 306 430 A 20 20 0 0 1 286 450 L 226 450 A 20 20 0 0 1 206 430 L 206 424 A 24 24 0 0 1 230 400 Z" fill="#FFFFFF" opacity="0.9"/>
+  <path d="M 306 414 L 318 414 A 12 12 0 0 1 330 426 L 330 428 A 12 12 0 0 1 318 440 L 306 440" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+</svg>

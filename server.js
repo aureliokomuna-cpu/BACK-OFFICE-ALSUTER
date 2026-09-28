@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import mqtt from "mqtt";
 
 // src/data/defaultEmployees.ts
 var rawEmployeeRows = [
@@ -290,9 +291,22 @@ var __dirname = path.dirname(__filename);
 var PORT = Number(process.env.PORT) || 3e3;
 var DATA_DIR = path.resolve(__dirname, "data_store");
 var DATA_FILE = path.resolve(DATA_DIR, "informa_state.json");
-var NTFY_TOPIC_URL = "https://ntfy.sh/informa_alamsutera_sync_channel";
+var SYNC_TOPIC = "informa/alamsutera/v1/sessions_state";
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+function cleanStaleSessions(sessions) {
+  const now = Date.now();
+  return sessions.map((s) => {
+    if (s.endTime === null && now - s.startTime > 16 * 3600 * 1e3) {
+      return {
+        ...s,
+        endTime: s.startTime + 40 * 60 * 1e3,
+        durationMinutes: 40
+      };
+    }
+    return s;
+  });
 }
 function loadState() {
   try {
@@ -300,15 +314,12 @@ function loadState() {
       const raw = fs.readFileSync(DATA_FILE, "utf-8");
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.sessions)) {
-        const now = Date.now();
-        const cleanSessions = parsed.sessions.filter((s) => {
-          if (s.endTime === null && now - s.startTime > 24 * 3600 * 1e3) return false;
-          return true;
-        });
+        const cleaned = cleanStaleSessions(parsed.sessions);
         return {
           employees: Array.isArray(parsed.employees) && parsed.employees.length > 0 ? parsed.employees : DEFAULT_EMPLOYEES,
-          sessions: cleanSessions,
-          lastUpdated: parsed.lastUpdated || Date.now()
+          sessions: cleaned,
+          lastUpdated: parsed.lastUpdated || Date.now(),
+          lastResetTime: parsed.lastResetTime || 0
         };
       }
     }
@@ -318,23 +329,24 @@ function loadState() {
   const initial = {
     employees: DEFAULT_EMPLOYEES,
     sessions: [],
-    lastUpdated: Date.now()
+    lastUpdated: Date.now(),
+    lastResetTime: 0
   };
   saveState(initial);
   return initial;
 }
 var serverState = loadState();
-function reconcileServerSessions(local, remote) {
+function reconcileServerSessions(local, remote, resetThreshold = 0) {
   const map = /* @__PURE__ */ new Map();
   let localUpdated = false;
   let remoteNeedsUpdate = false;
-  const now = Date.now();
-  const validLocal = local.filter((s) => {
-    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1e3) return false;
+  const effectiveReset = Math.max(resetThreshold, serverState.lastResetTime || 0);
+  const validLocal = cleanStaleSessions(local).filter((s) => {
+    if (effectiveReset > 0 && s.startTime < effectiveReset) return false;
     return true;
   });
-  const validRemote = remote.filter((s) => {
-    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1e3) return false;
+  const validRemote = cleanStaleSessions(remote).filter((s) => {
+    if (effectiveReset > 0 && s.startTime < effectiveReset) return false;
     return true;
   });
   for (const s of validLocal) {
@@ -355,6 +367,11 @@ function reconcileServerSessions(local, remote) {
         localUpdated = true;
       } else if (l.endTime !== null && r.endTime === null) {
         remoteNeedsUpdate = true;
+      }
+      if (Math.abs(r.startTime - l.startTime) > 1e3) {
+        merged.startTime = r.startTime;
+        changed = true;
+        localUpdated = true;
       }
       if (r.alarmPlayed && !l.alarmPlayed) {
         merged.alarmPlayed = true;
@@ -394,16 +411,65 @@ function reconcileServerSessions(local, remote) {
     remoteNeedsUpdate
   };
 }
+var serverMqttClient = null;
+try {
+  serverMqttClient = mqtt.connect("wss://broker.emqx.io:8084/mqtt", {
+    clientId: "srv_informa_" + Math.random().toString(16).slice(2),
+    clean: true,
+    reconnectPeriod: 4e3
+  });
+  serverMqttClient.on("connect", () => {
+    console.log("[Server MQTT] Connected to Cloud Broker");
+    serverMqttClient?.subscribe(SYNC_TOPIC, { qos: 1 });
+  });
+  serverMqttClient.on("message", (topic, message) => {
+    if (topic === SYNC_TOPIC) {
+      try {
+        const payload = JSON.parse(message.toString());
+        if (payload && Array.isArray(payload.sessions) && payload.senderId !== "server_backend") {
+          const { merged, localUpdated } = reconcileServerSessions(serverState.sessions, payload.sessions);
+          if (localUpdated) {
+            serverState.sessions = merged;
+            serverState.lastUpdated = Date.now();
+            try {
+              fs.writeFileSync(DATA_FILE, JSON.stringify(serverState, null, 2), "utf-8");
+            } catch {
+            }
+            notifySseClients();
+          }
+        }
+      } catch {
+      }
+    }
+  });
+  serverMqttClient.on("error", (err) => {
+    console.debug("[Server MQTT] Notice:", err.message);
+  });
+} catch (e) {
+  console.debug("[Server MQTT] Init notice:", e);
+}
 function saveState(state) {
   try {
     state.lastUpdated = Date.now();
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), "utf-8");
     notifySseClients();
-    fetch(NTFY_TOPIC_URL, {
-      method: "POST",
-      body: JSON.stringify({ type: "SYNC", lastUpdated: state.lastUpdated })
-    }).catch(() => {
-    });
+    if (serverMqttClient && serverMqttClient.connected) {
+      try {
+        serverMqttClient.publish(
+          SYNC_TOPIC,
+          JSON.stringify({
+            type: "SYNC_STATE",
+            sessions: state.sessions,
+            employees: state.employees,
+            updatedAt: state.lastUpdated,
+            lastResetTime: state.lastResetTime || 0,
+            senderId: "server_backend"
+          }),
+          { retain: true, qos: 1 }
+        );
+      } catch {
+      }
+    }
   } catch (err) {
     console.error("Failed writing state to disk:", err);
   }
@@ -413,6 +479,10 @@ function notifySseClients() {
   const payload = JSON.stringify({
     type: "SYNC",
     lastUpdated: serverState.lastUpdated,
+    lastResetTime: serverState.lastResetTime || 0,
+    serverTime: Date.now(),
+    sessions: serverState.sessions,
+    employees: serverState.employees,
     sessionsCount: serverState.sessions.length,
     activeCount: serverState.sessions.filter((s) => s.endTime === null).length
   });
@@ -447,19 +517,42 @@ function getTodayString() {
 }
 async function startServer() {
   const app = express();
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
   app.use(express.json({ limit: "10mb" }));
   app.get("/api/events", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
     sseClients.add(res);
-    res.write(`data: ${JSON.stringify({ type: "CONNECTED", lastUpdated: serverState.lastUpdated })}
+    const initialPayload = JSON.stringify({
+      type: "SYNC",
+      lastUpdated: serverState.lastUpdated,
+      sessions: serverState.sessions,
+      employees: serverState.employees,
+      sessionsCount: serverState.sessions.length,
+      activeCount: serverState.sessions.filter((s) => s.endTime === null).length
+    });
+    res.write(`data: ${initialPayload}
 
 `);
     const keepAlive = setInterval(() => {
-      res.write(": keepalive\n\n");
-    }, 2e4);
+      try {
+        res.write(": keepalive\n\n");
+      } catch {
+        clearInterval(keepAlive);
+        sseClients.delete(res);
+      }
+    }, 5e3);
     req.on("close", () => {
       clearInterval(keepAlive);
       sseClients.delete(res);
@@ -471,7 +564,22 @@ async function startServer() {
       timestamp: Date.now(),
       lastUpdated: serverState.lastUpdated,
       today: getTodayString(),
-      activeBreaks: serverState.sessions.filter((s) => s.endTime === null).length
+      activeBreaks: serverState.sessions.filter((s) => s.endTime === null).length,
+      totalSessions: serverState.sessions.length,
+      connectedClients: sseClients.size
+    });
+  });
+  app.get("/api/state", (req, res) => {
+    serverState.sessions = cleanStaleSessions(serverState.sessions);
+    res.json({
+      success: true,
+      lastUpdated: serverState.lastUpdated,
+      lastResetTime: serverState.lastResetTime || 0,
+      serverTime: Date.now(),
+      today: getTodayString(),
+      sessions: serverState.sessions,
+      employees: serverState.employees,
+      activeCount: serverState.sessions.filter((s) => s.endTime === null).length
     });
   });
   app.get("/api/employees", (req, res) => {
@@ -488,6 +596,7 @@ async function startServer() {
     }
   });
   app.get("/api/sessions", (req, res) => {
+    serverState.sessions = cleanStaleSessions(serverState.sessions);
     const { today, nip } = req.query;
     let list = serverState.sessions;
     if (today === "1" || today === "true") {
@@ -500,19 +609,32 @@ async function startServer() {
     res.json(list);
   });
   app.post("/api/sessions/sync-all", (req, res) => {
-    const { sessions } = req.body;
+    const { sessions, lastResetTime } = req.body;
     if (Array.isArray(sessions)) {
-      const { merged, localUpdated } = reconcileServerSessions(serverState.sessions, sessions);
+      const { merged, localUpdated } = reconcileServerSessions(
+        serverState.sessions,
+        sessions,
+        typeof lastResetTime === "number" ? lastResetTime : 0
+      );
+      if (typeof lastResetTime === "number" && lastResetTime > (serverState.lastResetTime || 0)) {
+        serverState.lastResetTime = lastResetTime;
+      }
       if (localUpdated) {
         serverState.sessions = merged;
         saveState(serverState);
       }
-      return res.json({ success: true, count: serverState.sessions.length, sessions: serverState.sessions });
+      return res.json({
+        success: true,
+        count: serverState.sessions.length,
+        sessions: serverState.sessions,
+        lastUpdated: serverState.lastUpdated,
+        lastResetTime: serverState.lastResetTime || 0
+      });
     }
     res.status(400).json({ success: false, message: "Invalid sessions payload" });
   });
   app.post("/api/sessions/start", (req, res) => {
-    const { nip } = req.body;
+    const { nip, id, startTime, sessionNumber } = req.body;
     if (!nip) {
       return res.status(400).json({ success: false, message: "NIP wajib diisi." });
     }
@@ -523,33 +645,47 @@ async function startServer() {
     if (!employee) {
       return res.status(404).json({ success: false, message: "Karyawan tidak ditemukan." });
     }
+    serverState.sessions = cleanStaleSessions(serverState.sessions);
+    if (id) {
+      const existing = serverState.sessions.find((s) => s.id === id);
+      if (existing) {
+        return res.json({
+          success: true,
+          message: "Sesi istirahat sudah tercatat.",
+          session: existing
+        });
+      }
+    }
     const today = getTodayString();
-    const staffSessionsToday = serverState.sessions.filter((s) => s.nip === employee.nip && s.date === today);
+    const staffSessionsToday = serverState.sessions.filter((s) => s.nip === employee.nip && (s.date === today || s.endTime === null));
     const active = staffSessionsToday.find((s) => s.endTime === null);
     if (active) {
-      return res.status(400).json({
-        success: false,
-        message: "Anda sedang dalam sesi istirahat aktif! Selesaikan sesi ini terlebih dahulu.",
+      return res.json({
+        success: true,
+        message: "Anda sedang dalam sesi istirahat aktif.",
         session: active
       });
     }
-    if (staffSessionsToday.length >= 2) {
+    const completedToday = staffSessionsToday.filter((s) => s.endTime !== null);
+    if (completedToday.length >= 2) {
       return res.status(400).json({
         success: false,
         message: "Batas istirahat harian tercapai! Anda sudah mengambil jatah 2x istirahat hari ini."
       });
     }
-    const currentSessionNumber = staffSessionsToday.length + 1;
+    const currentSessionNumber = typeof sessionNumber === "number" ? sessionNumber : completedToday.length + 1;
     const effectiveJobTitle = employee.jobTitle.toUpperCase() === "SALES EXECUTIVE" ? "SMT" : employee.jobTitle;
+    const newSessionId = typeof id === "string" && id.startsWith("brk_") ? id : "brk_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+    const now = typeof startTime === "number" ? startTime : Date.now();
     const newSession = {
-      id: "brk_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+      id: newSessionId,
       nip: employee.nip,
       employeeName: employee.name,
       jobTitle: effectiveJobTitle,
       department: employee.department,
       storeZone: "Informa Alam Sutera",
       date: today,
-      startTime: Date.now(),
+      startTime: now,
       endTime: null,
       durationMinutes: 0,
       sessionNumber: currentSessionNumber,
@@ -567,11 +703,11 @@ async function startServer() {
     });
   });
   app.post("/api/sessions/end", (req, res) => {
-    const { nip, sessionId } = req.body;
+    const { nip, sessionId, endTime } = req.body;
     const today = getTodayString();
     const idx = serverState.sessions.findIndex((s) => {
-      if (sessionId) return s.id === sessionId && s.endTime === null;
-      if (nip) return s.nip === String(nip).trim() && s.date === today && s.endTime === null;
+      if (sessionId) return s.id === sessionId;
+      if (nip) return s.nip === String(nip).trim() && s.endTime === null;
       return false;
     });
     if (idx === -1) {
@@ -580,13 +716,21 @@ async function startServer() {
         message: "Tidak ditemukan sesi istirahat aktif untuk diselesaikan."
       });
     }
-    const now = Date.now();
     const session = serverState.sessions[idx];
-    const durationMs = now - session.startTime;
+    if (session.endTime !== null) {
+      return res.json({
+        success: true,
+        message: `Istirahat selesai! Durasi sesi: ${session.durationMinutes} menit.`,
+        session,
+        durationMinutes: session.durationMinutes
+      });
+    }
+    const finishTime = typeof endTime === "number" ? endTime : Date.now();
+    const durationMs = finishTime - session.startTime;
     const durationMinutes = Math.max(1, Math.round(durationMs / (1e3 * 60)));
     serverState.sessions[idx] = {
       ...session,
-      endTime: now,
+      endTime: finishTime,
       durationMinutes
     };
     saveState(serverState);
@@ -658,8 +802,23 @@ async function startServer() {
   app.post("/api/sessions/reset-today", (req, res) => {
     const today = getTodayString();
     serverState.sessions = serverState.sessions.filter((s) => s.date !== today);
+    serverState.lastResetTime = Date.now();
     saveState(serverState);
-    res.json({ success: true, message: "Data istirahat hari ini berhasil direset." });
+    res.json({
+      success: true,
+      message: "Data istirahat hari ini berhasil direset.",
+      lastResetTime: serverState.lastResetTime
+    });
+  });
+  app.post("/api/sessions/clear-all", (req, res) => {
+    serverState.sessions = [];
+    serverState.lastResetTime = Date.now();
+    saveState(serverState);
+    res.json({
+      success: true,
+      message: "Seluruh riwayat sesi berhasil dikosongkan.",
+      lastResetTime: serverState.lastResetTime
+    });
   });
   if (process.env.NODE_ENV === "production") {
     const distPath = path.resolve(__dirname, "dist");

@@ -50,6 +50,8 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   const [isStudioOpen, setIsStudioOpen] = useState<boolean>(false);
   const [editingSession, setEditingSession] = useState<BreakSession | null>(null);
   const [autoAnnounce, setAutoAnnounce] = useState<boolean>(true);
+  const [pendingEndSession, setPendingEndSession] = useState<{ nip: string; name: string } | null>(null);
+  const [showClearModal, setShowClearModal] = useState<boolean>(false);
   const [queueStatus, setQueueStatus] = useState<AudioQueueStatus>({
     isProcessing: false,
     queueLength: 0,
@@ -221,19 +223,26 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   };
 
   const handleForceEndBreak = (nip: string, staffName: string) => {
-    if (window.confirm(`Akhiri sesi istirahat untuk ${staffName} (NIP: ${nip}) secara manual?`)) {
-      endStaffBreak(nip);
-      setSessions(getTodaySessions());
-      onRefreshNeeded();
-    }
+    setPendingEndSession({ nip, name: staffName });
+  };
+
+  const confirmForceEndBreak = () => {
+    if (!pendingEndSession) return;
+    endStaffBreak(pendingEndSession.nip);
+    setSessions(getTodaySessions());
+    setPendingEndSession(null);
+    onRefreshNeeded();
   };
 
   const handleClearAll = () => {
-    if (window.confirm('PERHATIAN: Apakah Anda yakin ingin mengosongkan seluruh riwayat istirahat hari ini? Data yang terhapus tidak dapat dikembalikan.')) {
-      clearAllSessions();
-      setSessions([]);
-      onRefreshNeeded();
-    }
+    setShowClearModal(true);
+  };
+
+  const confirmClearAll = () => {
+    clearAllSessions();
+    setSessions([]);
+    setShowClearModal(false);
+    onRefreshNeeded();
   };
 
   const myActiveBreak = useMemo(() => {
@@ -1047,6 +1056,72 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
           onRefreshNeeded();
         }}
       />
+
+      {/* Manual End Confirmation Modal */}
+      {pendingEndSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+              <Clock className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h4 className="font-black text-slate-900 text-base">Akhiri Sesi Istirahat?</h4>
+              <p className="text-xs text-slate-500">
+                Tandai bahwa <span className="font-bold text-slate-800">{pendingEndSession.name}</span> (NIP: {pendingEndSession.nip}) telah selesai istirahat dan kembali ke floor?
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPendingEndSession(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmForceEndBreak}
+                className="flex-1 py-2.5 rounded-xl bg-[#0033A0] hover:bg-[#00257A] text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+              >
+                Ya, Selesaikan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Sessions Confirmation Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-red-100 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h4 className="font-black text-slate-900 text-base">Kosongkan Riwayat Istirahat?</h4>
+              <p className="text-xs text-slate-500">
+                PERHATIAN: Seluruh riwayat istirahat hari ini akan dikosongkan pada semua perangkat. Tindakan ini tidak dapat dibatalkan.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmClearAll}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+              >
+                Ya, Kosongkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

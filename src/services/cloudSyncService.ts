@@ -9,11 +9,12 @@ interface SyncPayload {
   sessions: BreakSession[];
   employees?: Employee[];
   updatedAt: number;
+  lastResetTime?: number;
   senderId: string;
 }
 
 type SyncStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
-type SyncListener = (sessions: BreakSession[], employees?: Employee[]) => void;
+type SyncListener = (sessions: BreakSession[], employees?: Employee[], lastResetTime?: number) => void;
 type StatusListener = (status: SyncStatus) => void;
 
 class CloudSyncService {
@@ -24,13 +25,9 @@ class CloudSyncService {
   private statusListeners: Set<StatusListener> = new Set();
   private lastPublishedAt = 0;
   private isConnecting = false;
-  private brokerIndex = 0;
 
-  // Multiple high-reliability public MQTT WebSocket brokers
-  private brokers = [
-    'wss://broker.emqx.io:8084/mqtt',
-    'wss://broker.hivemq.com:8884/mqtt',
-  ];
+  // Single reliable high-speed public MQTT WebSocket broker
+  private brokerUrl = 'wss://broker.emqx.io:8084/mqtt';
 
   constructor() {
     this.clientId = 'mgr_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
@@ -71,15 +68,13 @@ class CloudSyncService {
     this.isConnecting = true;
     this.setStatus('connecting');
 
-    const brokerUrl = this.brokers[this.brokerIndex % this.brokers.length];
-
     try {
-      this.client = mqtt.connect(brokerUrl, {
+      this.client = mqtt.connect(this.brokerUrl, {
         clientId: this.clientId,
         clean: true,
-        connectTimeout: 7000,
-        reconnectPeriod: 3000,
-        keepalive: 30,
+        connectTimeout: 8000,
+        reconnectPeriod: 2500,
+        keepalive: 20,
       });
 
       this.client.on('connect', () => {
@@ -107,7 +102,7 @@ class CloudSyncService {
 
           this.syncListeners.forEach((listener) => {
             try {
-              listener(payload.sessions, payload.employees);
+              listener(payload.sessions, payload.employees, payload.lastResetTime);
             } catch (e) {
               console.error('[CloudSync] Listener error:', e);
             }
@@ -126,10 +121,8 @@ class CloudSyncService {
       });
 
       this.client.on('error', (err) => {
-        console.warn('[CloudSync] Broker connection error:', err?.message || err);
+        console.warn('[CloudSync] Broker connection notice:', err?.message || err);
         this.setStatus('error');
-        // Switch to alternate broker if one fails
-        this.brokerIndex++;
       });
     } catch (e) {
       this.isConnecting = false;
@@ -160,7 +153,7 @@ class CloudSyncService {
    * Broadcast current sessions state to all connected devices.
    * Uses MQTT Retain flag so any newly opened device immediately gets this state.
    */
-  public publishState(sessions: BreakSession[], employees?: Employee[]) {
+  public publishState(sessions: BreakSession[], employees?: Employee[], lastResetTime: number = 0) {
     if (!this.client || !this.client.connected) {
       this.init();
     }
@@ -170,6 +163,7 @@ class CloudSyncService {
       sessions,
       employees,
       updatedAt: Date.now(),
+      lastResetTime,
       senderId: this.clientId,
     };
 

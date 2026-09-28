@@ -8,7 +8,16 @@ const STORAGE_KEYS = {
   EMPLOYEES: 'informa_employees_v1',
   SESSIONS: 'informa_break_sessions_v1',
   SERVER_SYNC_TIME: 'informa_sync_time_v1',
+  LAST_RESET_TIME: 'informa_reset_time_v1',
 };
+
+let localLastResetTime = 0;
+try {
+  const savedReset = localStorage.getItem(STORAGE_KEYS.LAST_RESET_TIME);
+  if (savedReset) {
+    localLastResetTime = Number(savedReset) || 0;
+  }
+} catch {}
 
 const NTFY_TOPIC_URL = 'https://ntfy.sh/informa_alamsutera_sync_channel';
 
@@ -232,30 +241,84 @@ function loadInitialCache() {
 
 loadInitialCache();
 
-export function applyAuthoritativeServerSessions(serverSessions: BreakSession[]) {
-  if (!Array.isArray(serverSessions)) return;
+export function reconcileSessionCollection(
+  incomingSessions: BreakSession[],
+  incomingResetTime: number = 0
+): void {
+  if (!Array.isArray(incomingSessions)) return;
 
   const now = Date.now();
-  const map = new Map<string, BreakSession>();
-
-  // Populate from server (authoritative)
-  for (const s of serverSessions) {
-    // Exclude abandoned breaks over 24h old
-    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) continue;
-    map.set(s.id, s);
+  if (incomingResetTime > localLastResetTime) {
+    localLastResetTime = incomingResetTime;
+    try {
+      localStorage.setItem(STORAGE_KEYS.LAST_RESET_TIME, String(localLastResetTime));
+    } catch {}
   }
 
-  // Preserve any local active session that was created within the last 8 seconds
-  // so the user experiences zero flicker before the server roundtrip finishes
-  for (const l of memorySessions) {
-    if (l.endTime === null && now - l.startTime < 8000 && !map.has(l.id)) {
-      map.set(l.id, l);
+  const sessionMap = new Map<string, BreakSession>();
+
+  // 1. Process valid local sessions
+  for (const s of memorySessions) {
+    if (localLastResetTime > 0 && s.startTime < localLastResetTime) continue;
+    // Auto-close abandoned breaks > 16 hours
+    if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
+      sessionMap.set(s.id, {
+        ...s,
+        endTime: s.startTime + 40 * 60 * 1000,
+        durationMinutes: 40,
+      });
+      continue;
+    }
+    sessionMap.set(s.id, s);
+  }
+
+  // 2. Merge incoming sessions
+  for (const remote of incomingSessions) {
+    if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
+
+    const local = sessionMap.get(remote.id);
+    if (!local) {
+      // Auto-close abandoned remote sessions
+      if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
+        sessionMap.set(remote.id, {
+          ...remote,
+          endTime: remote.startTime + 40 * 60 * 1000,
+          durationMinutes: 40,
+        });
+      } else {
+        sessionMap.set(remote.id, remote);
+      }
+    } else {
+      let merged = { ...local };
+
+      // Protection: if local ended recently (< 25s), don't let stale remote reopen it
+      if (local.endTime !== null && remote.endTime === null) {
+        merged.endTime = local.endTime;
+        merged.durationMinutes = local.durationMinutes;
+      } else if (remote.endTime !== null && local.endTime === null) {
+        merged.endTime = remote.endTime;
+        merged.durationMinutes = remote.durationMinutes;
+      }
+
+      // Start time adjustments (manager simulator)
+      if (Math.abs(remote.startTime - local.startTime) > 1000) {
+        merged.startTime = remote.startTime;
+      }
+
+      // Audio alarm flags: once true, always true
+      merged.warningPlayed = local.warningPlayed || remote.warningPlayed;
+      merged.alarmPlayed = local.alarmPlayed || remote.alarmPlayed;
+      merged.overduePlayed = local.overduePlayed || remote.overduePlayed;
+
+      sessionMap.set(remote.id, merged);
     }
   }
 
-  const merged = Array.from(map.values()).sort((a, b) => b.startTime - a.startTime);
+  const merged = Array.from(sessionMap.values()).sort((a, b) => {
+    if (b.startTime !== a.startTime) return b.startTime - a.startTime;
+    return b.id.localeCompare(a.id);
+  });
 
-  // Check if anything actually changed
   if (JSON.stringify(merged) !== JSON.stringify(memorySessions)) {
     memorySessions = merged;
     try {
@@ -265,59 +328,18 @@ export function applyAuthoritativeServerSessions(serverSessions: BreakSession[])
   }
 }
 
-export function reconcileWithCloudSessions(cloudSessions: BreakSession[]): void {
-  if (!Array.isArray(cloudSessions)) return;
+export function applyAuthoritativeServerSessions(serverSessions: BreakSession[], resetTime: number = 0) {
+  reconcileSessionCollection(serverSessions, resetTime);
+}
 
-  const now = Date.now();
-  const sessionMap = new Map<string, BreakSession>();
-
-  // 1. Existing local sessions
-  for (const s of memorySessions) {
-    if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) continue;
-    sessionMap.set(s.id, s);
-  }
-
-  // 2. Merge with incoming Cloud / MQTT sessions
-  let hasChanges = false;
-  for (const remote of cloudSessions) {
-    if (remote.endTime === null && now - remote.startTime > 24 * 3600 * 1000) continue;
-
-    const local = sessionMap.get(remote.id);
-    if (!local) {
-      sessionMap.set(remote.id, remote);
-      hasChanges = true;
-    } else {
-      // If either has finished (endTime is set), finished state always wins
-      if (remote.endTime !== null && local.endTime === null) {
-        sessionMap.set(remote.id, remote);
-        hasChanges = true;
-      } else if (local.endTime !== null && remote.endTime === null) {
-        // Keep local finished
-      } else {
-        // Keep freshest or remote
-        if (JSON.stringify(local) !== JSON.stringify(remote)) {
-          sessionMap.set(remote.id, { ...local, ...remote });
-          hasChanges = true;
-        }
-      }
-    }
-  }
-
-  const merged = Array.from(sessionMap.values()).sort((a, b) => b.startTime - a.startTime);
-
-  if (hasChanges || JSON.stringify(merged) !== JSON.stringify(memorySessions)) {
-    memorySessions = merged;
-    try {
-      localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(merged));
-    } catch {}
-    notifySubscribers();
-  }
+export function reconcileWithCloudSessions(cloudSessions: BreakSession[], resetTime: number = 0) {
+  reconcileSessionCollection(cloudSessions, resetTime);
 }
 
 // Connect CloudSync listener immediately
-cloudSync.onSync((cloudSessions, cloudEmployees) => {
+cloudSync.onSync((cloudSessions, cloudEmployees, cloudResetTime) => {
   if (Array.isArray(cloudSessions)) {
-    reconcileWithCloudSessions(cloudSessions);
+    reconcileSessionCollection(cloudSessions, cloudResetTime || 0);
   }
   if (Array.isArray(cloudEmployees) && cloudEmployees.length > 0) {
     if (JSON.stringify(cloudEmployees) !== JSON.stringify(memoryEmployees)) {
@@ -333,13 +355,31 @@ cloudSync.onSync((cloudSessions, cloudEmployees) => {
 export async function fetchServerState(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
+    const res = await fetch('/api/state').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (res && res.success) {
+      if (Array.isArray(res.sessions)) {
+        reconcileSessionCollection(res.sessions, res.lastResetTime || 0);
+      }
+      if (Array.isArray(res.employees) && res.employees.length > 0) {
+        if (JSON.stringify(res.employees) !== JSON.stringify(memoryEmployees)) {
+          memoryEmployees = res.employees;
+          try {
+            localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(res.employees));
+          } catch {}
+          notifySubscribers();
+        }
+      }
+      return;
+    }
+
+    // Fallback if /api/state not available
     const [sessRes, empRes] = await Promise.all([
       fetch('/api/sessions').then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch('/api/employees').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
 
     if (Array.isArray(sessRes)) {
-      applyAuthoritativeServerSessions(sessRes);
+      reconcileSessionCollection(sessRes, 0);
     }
 
     if (Array.isArray(empRes) && empRes.length > 0) {
@@ -381,7 +421,7 @@ export function initRealtimeSync(): void {
         try {
           const data = JSON.parse(event.data);
           if (data && Array.isArray(data.sessions)) {
-            applyAuthoritativeServerSessions(data.sessions);
+            reconcileSessionCollection(data.sessions, data.lastResetTime || 0);
             if (Array.isArray(data.employees)) {
               if (JSON.stringify(data.employees) !== JSON.stringify(memoryEmployees)) {
                 memoryEmployees = data.employees;
@@ -420,11 +460,14 @@ export function initRealtimeSync(): void {
   window.addEventListener('pageshow', () => {
     fetchServerState();
   });
+  window.addEventListener('online', () => {
+    fetchServerState();
+  });
 
-  // Short polling fallback every 1000ms so all mobile devices stay 100% in lockstep
+  // Short polling fallback every 1500ms so all mobile devices stay 100% in lockstep
   setInterval(() => {
     fetchServerState();
-  }, 1000);
+  }, 1500);
 
   // Initialize Global MQTT Cloud Synchronization
   try {
@@ -434,7 +477,7 @@ export function initRealtimeSync(): void {
       const all = getAllSessions();
       const active = all.filter((s) => s.endTime === null);
       if (active.length > 0) {
-        cloudSync.publishState(all, memoryEmployees);
+        cloudSync.publishState(all, memoryEmployees, localLastResetTime);
       }
     }, 1500);
   } catch (e) {
@@ -443,7 +486,7 @@ export function initRealtimeSync(): void {
 }
 
 export function broadcastCurrentStateToCloud(): void {
-  cloudSync.publishState(getAllSessions(), memoryEmployees);
+  cloudSync.publishState(getAllSessions(), memoryEmployees, localLastResetTime);
 }
 
 // Auto-trigger on module load in client
@@ -540,13 +583,13 @@ export function saveSessions(sessions: BreakSession[]): void {
   notifySubscribers();
 
   // Instant real-time broadcast to all other phones & managers across the internet
-  cloudSync.publishState(sessions, memoryEmployees);
+  cloudSync.publishState(sessions, memoryEmployees, localLastResetTime);
 
   // Also sync to local backend if running in full-stack mode
   fetch('/api/sessions/sync-all', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessions }),
+    body: JSON.stringify({ sessions, lastResetTime: localLastResetTime }),
   }).catch(() => {});
 }
 
@@ -842,8 +885,12 @@ export function markOverduePlayed(sessionId: string): void {
 
 export function resetTodaySessions(): Promise<void> {
   const today = getTodayDateString();
-  const remaining = getAllSessions().filter((s) => s.date !== today);
   const resetNow = Date.now();
+  localLastResetTime = resetNow;
+  try {
+    localStorage.setItem(STORAGE_KEYS.LAST_RESET_TIME, String(resetNow));
+  } catch {}
+  const remaining = getAllSessions().filter((s) => s.date !== today);
   saveSessions(remaining);
   pushToCloudDirect(remaining, resetNow);
   return fetch('/api/sessions/reset-today', { method: 'POST' }).then(() => {}).catch(() => {});
@@ -864,12 +911,16 @@ export function seedInitialDemoIfEmpty(): void {
 
 export function clearAllSessions(): void {
   const resetNow = Date.now();
-  memorySessions = [];
-  localStorage.removeItem(STORAGE_KEYS.SESSIONS);
-  syncChannel?.postMessage({ type: 'SESSIONS_UPDATED', timestamp: Date.now() });
-  notifySubscribers();
+  localLastResetTime = resetNow;
+  try {
+    localStorage.setItem(STORAGE_KEYS.LAST_RESET_TIME, String(resetNow));
+  } catch {}
+  saveSessions([]);
+  try {
+    localStorage.removeItem(STORAGE_KEYS.SESSIONS);
+  } catch {}
   pushToCloudDirect([], resetNow);
-  fetch('/api/sessions/reset-today', { method: 'POST' }).catch(() => {});
+  fetch('/api/sessions/clear-all', { method: 'POST' }).catch(() => {});
 }
 
 // ---------------- CSV Importer ---------------- //

@@ -1,0 +1,17 @@
+{
+  "short_name": "Informa Istirahat",
+  "name": "Absensi Istirahat Informa Alam Sutera",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0033A0",
+  "theme_color": "#0033A0",
+  "display": "standalone",
+  "orientation": "portrait"
+}

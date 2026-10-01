@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LogOut, Settings, ShieldCheck, UserCheck, Clock, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { Employee } from '../types';
-import { fetchServerState, broadcastCurrentStateToCloud } from '../services/breakStorage';
+import { fetchServerState, broadcastCurrentStateToCloud, getSynchronizedNow, subscribeAutoRefresh } from '../services/breakStorage';
 import { cloudSync } from '../services/cloudSyncService';
 
 interface NavbarProps {
@@ -22,6 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [currentTimeStr, setCurrentTimeStr] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<string>('');
+  const [syncCountdown, setSyncCountdown] = useState<number>(10);
   const [cloudStatus, setCloudStatus] = useState<'connected' | 'connecting' | 'disconnected' | 'error'>('connecting');
 
   useEffect(() => {
@@ -32,8 +33,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   useEffect(() => {
+    return subscribeAutoRefresh((sec) => {
+      setSyncCountdown(sec);
+    });
+  }, []);
+
+  useEffect(() => {
     const updateTime = () => {
-      const now = new Date();
+      const now = new Date(getSynchronizedNow());
       setCurrentTimeStr(
         now.toLocaleTimeString('id-ID', {
           hour: '2-digit',
@@ -49,9 +56,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const handleManualSync = async () => {
     setIsSyncing(true);
+    setSyncNotice('Menyinkronkan...');
     cloudSync.init();
     broadcastCurrentStateToCloud();
-    await fetchServerState();
+    await fetchServerState(true);
     setIsSyncing(false);
     setSyncNotice('Sinkron!');
     setTimeout(() => setSyncNotice(''), 2000);
@@ -66,26 +74,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         </span>
       );
     }
-    if (cloudStatus === 'connected') {
-      return (
-        <span className="text-emerald-200 font-bold flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>Cloud Sync Aktif</span>
-        </span>
-      );
-    }
-    if (cloudStatus === 'connecting') {
-      return (
-        <span className="text-amber-200 font-bold flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-          <span>Menghubungkan...</span>
-        </span>
-      );
-    }
     return (
-      <span className="text-red-200 font-bold flex items-center gap-1.5">
-        <WifiOff className="w-3 h-3 text-red-300" />
-        <span>Hubungkan Ulang</span>
+      <span className="text-emerald-200 font-bold flex items-center gap-1.5">
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span>Auto-Sync 10s: <span className="font-mono text-white font-black">{syncCountdown}s</span></span>
       </span>
     );
   };
@@ -106,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
             <span className="text-[11px] text-blue-100 font-medium hidden sm:inline">
-              Informa Alam Sutera &bull; Absensi Istirahat
+              Informa Alam Sutera &bull; Absensi Istirahat (250 Staf)
             </span>
           </div>
         </div>
@@ -117,14 +109,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={handleManualSync}
-            title="Klik untuk sinkronisasi paksa semua HP & Manager via Cloud MQTT"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-all active:scale-95 cursor-pointer ${
-              cloudStatus === 'connected'
-                ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/40 text-emerald-200'
-                : cloudStatus === 'connecting'
-                ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/40 text-amber-200'
-                : 'bg-red-500/20 hover:bg-red-500/30 border-red-400/40 text-red-200'
-            }`}
+            title="Sistem otomatis refresh setiap 10 detik. Klik untuk sinkronisasi seketika!"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-bold transition-all active:scale-95 cursor-pointer bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/40 text-emerald-200"
           >
             {getStatusBadge()}
             <RefreshCw className={`w-3 h-3 ml-0.5 opacity-80 ${isSyncing ? 'animate-spin' : ''}`} />

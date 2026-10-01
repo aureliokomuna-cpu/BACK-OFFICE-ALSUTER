@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Coffee, CheckCircle, Clock, AlertCircle, Volume2, ShieldAlert, User, ArrowRight } from 'lucide-react';
+import { Coffee, CheckCircle, Clock, AlertCircle, Volume2, ShieldAlert, User, ArrowRight, RefreshCw } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Employee, DailyStaffSummary } from '../types';
 import {
@@ -10,6 +10,9 @@ import {
   markWarningPlayed,
   markOverduePlayed,
   subscribeDataChanges,
+  getSynchronizedNow,
+  subscribeAutoRefresh,
+  fetchServerState,
 } from '../services/breakStorage';
 import {
   playAudio1Sudah40Menit,
@@ -33,19 +36,27 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
   );
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [alertMessage, setAlertMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [syncCountdown, setSyncCountdown] = useState<number>(10);
 
   // Sync summary & real-time clock
   const refreshSummary = () => {
     const s = getStaffDailySummary(currentUser.nip);
     setSummary(s);
     if (s.activeSession) {
-      const now = Date.now();
+      const now = getSynchronizedNow();
       const elapsed = Math.max(0, Math.floor((now - s.activeSession.startTime) / 1000));
       setElapsedSeconds(elapsed);
     } else {
       setElapsedSeconds(0);
     }
   };
+
+  // 10-second auto-refresh countdown subscription
+  useEffect(() => {
+    return subscribeAutoRefresh((sec) => {
+      setSyncCountdown(sec);
+    });
+  }, []);
 
   // Multi-device central sync subscription
   useEffect(() => {
@@ -63,7 +74,7 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
       setSummary(current);
 
       if (current.activeSession) {
-        const now = Date.now();
+        const now = getSynchronizedNow();
         const elapsedSec = Math.max(0, Math.floor((now - current.activeSession.startTime) / 1000));
         setElapsedSeconds(elapsedSec);
 
@@ -172,6 +183,35 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
 
   return (
     <div className="max-w-md mx-auto px-4 py-6 space-y-4">
+      {/* Real-time 10-Second Auto-Refresh Banner for 250 Staff */}
+      <div className="bg-white rounded-2xl px-4 py-2.5 shadow-xs border border-slate-200/70 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="relative flex items-center justify-center">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping absolute"></span>
+          </div>
+          <div>
+            <span className="font-bold text-slate-800">Auto-Refresh 10 Detik: </span>
+            <span className="font-mono font-black text-[#0033A0]">{syncCountdown}s</span>
+            <span className="text-[11px] text-slate-400 ml-1.5 hidden sm:inline">
+              &bull; Kalibrasi master server aktif
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            fetchServerState(true);
+            refreshSummary();
+          }}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-[11px] font-bold border border-slate-200 active:scale-95 transition-all cursor-pointer"
+          title="Sinkronkan data ke server sekarang"
+        >
+          <RefreshCw className="w-3 h-3 text-[#0033A0]" />
+          <span>Refresh</span>
+        </button>
+      </div>
+
       {/* Profil Karyawan (Informa Alam Sutera) */}
       <div className="bg-white rounded-3xl p-5 shadow-xs border border-slate-100 flex items-center justify-between">
         <div className="space-y-1">

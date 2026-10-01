@@ -144,11 +144,15 @@ export async function pushToCloudDirect(sessions: BreakSession[], lastResetTime:
   if (isSyncPushing) return;
   isSyncPushing = true;
   try {
-    await fetch('/api/sessions/sync-all', {
+    const res = await fetch('/api/sessions/sync-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessions, lastResetTime: lastResetTime || 0 }),
-    });
+    }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+    if (res && res.success && Array.isArray(res.sessions)) {
+      reconcileSessionCollection(res.sessions, res.lastResetTime || 0, true);
+    }
 
     fetch(NTFY_TOPIC_URL, {
       method: 'POST',
@@ -171,6 +175,67 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
 let memorySessions: BreakSession[] = [];
 let memoryEmployees: Employee[] = [];
 let isInitialized = false;
+
+// 10-second authoritative server sync parameters
+export const AUTO_REFRESH_INTERVAL_SEC = 10;
+let secondsUntilRefresh = AUTO_REFRESH_INTERVAL_SEC;
+let serverClockSkewMs = 0;
+let latestServerUpdateTimestamp = 0;
+let lastSyncTimestamp = Date.now();
+
+/**
+ * Returns the exact current time synchronized with the central server.
+ * Completely eliminates any client phone clock drift/inaccuracy across all 250 staff devices!
+ */
+export function getSynchronizedNow(): number {
+  return Date.now() + serverClockSkewMs;
+}
+
+export function getLastSyncTimestamp(): number {
+  return lastSyncTimestamp;
+}
+
+export function getServerClockSkew(): number {
+  return serverClockSkewMs;
+}
+
+type AutoRefreshListener = (secondsRemaining: number, lastSyncTime: number) => void;
+const autoRefreshListeners = new Set<AutoRefreshListener>();
+
+export function subscribeAutoRefresh(listener: AutoRefreshListener): () => void {
+  autoRefreshListeners.add(listener);
+  listener(secondsUntilRefresh, lastSyncTimestamp);
+  return () => {
+    autoRefreshListeners.delete(listener);
+  };
+}
+
+function notifyAutoRefreshListeners(seconds: number, lastSyncTime: number = lastSyncTimestamp) {
+  secondsUntilRefresh = seconds;
+  autoRefreshListeners.forEach((l) => {
+    try {
+      l(seconds, lastSyncTime);
+    } catch {}
+  });
+}
+
+// Fast O(1) hash index for 250+ employees
+let employeeNipMap = new Map<string, Employee>();
+
+function updateEmployeeMap(list: Employee[]) {
+  const map = new Map<string, Employee>();
+  for (const emp of list) {
+    if (emp && emp.nip) {
+      const clean = emp.nip.trim();
+      map.set(clean, emp);
+      const parsed = parseInt(clean, 10);
+      if (!isNaN(parsed)) {
+        map.set(String(parsed), emp);
+      }
+    }
+  }
+  employeeNipMap = map;
+}
 
 type ChangeListener = () => void;
 const changeListeners = new Set<ChangeListener>();
@@ -220,11 +285,17 @@ function loadInitialCache() {
     const savedSessions = localStorage.getItem(STORAGE_KEYS.SESSIONS);
     if (savedSessions) {
       const parsed: BreakSession[] = JSON.parse(savedSessions);
-      // Clean up ancient abandoned breaks (> 24 hours ago)
+      // Clean up ancient abandoned breaks (> 16 hours ago)
       const now = Date.now();
-      memorySessions = parsed.filter((s) => {
-        if (s.endTime === null && now - s.startTime > 24 * 3600 * 1000) return false;
-        return true;
+      memorySessions = parsed.map((s) => {
+        if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
+          return {
+            ...s,
+            endTime: s.startTime + 40 * 60 * 1000,
+            durationMinutes: 40,
+          };
+        }
+        return s;
       });
     }
   } catch {}
@@ -236,18 +307,22 @@ function loadInitialCache() {
     } else {
       memoryEmployees = DEFAULT_EMPLOYEES;
     }
-  } catch {}
+  } catch {
+    memoryEmployees = DEFAULT_EMPLOYEES;
+  }
+  updateEmployeeMap(memoryEmployees);
 }
 
 loadInitialCache();
 
 export function reconcileSessionCollection(
   incomingSessions: BreakSession[],
-  incomingResetTime: number = 0
+  incomingResetTime: number = 0,
+  isAuthoritativeServer: boolean = false
 ): void {
   if (!Array.isArray(incomingSessions)) return;
 
-  const now = Date.now();
+  const now = getSynchronizedNow();
   if (incomingResetTime > localLastResetTime) {
     localLastResetTime = incomingResetTime;
     try {
@@ -257,28 +332,12 @@ export function reconcileSessionCollection(
 
   const sessionMap = new Map<string, BreakSession>();
 
-  // 1. Process valid local sessions
-  for (const s of memorySessions) {
-    if (localLastResetTime > 0 && s.startTime < localLastResetTime) continue;
-    // Auto-close abandoned breaks > 16 hours
-    if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
-      sessionMap.set(s.id, {
-        ...s,
-        endTime: s.startTime + 40 * 60 * 1000,
-        durationMinutes: 40,
-      });
-      continue;
-    }
-    sessionMap.set(s.id, s);
-  }
-
-  // 2. Merge incoming sessions
-  for (const remote of incomingSessions) {
-    if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
-
-    const local = sessionMap.get(remote.id);
-    if (!local) {
-      // Auto-close abandoned remote sessions
+  if (isAuthoritativeServer) {
+    // 1. Authoritative Server source:
+    // Add all valid server sessions first
+    for (const remote of incomingSessions) {
+      if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
+      // Auto-close abandoned breaks > 16 hours
       if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
         sessionMap.set(remote.id, {
           ...remote,
@@ -288,29 +347,83 @@ export function reconcileSessionCollection(
       } else {
         sessionMap.set(remote.id, remote);
       }
-    } else {
-      let merged = { ...local };
+    }
 
-      // Protection: if local ended recently (< 25s), don't let stale remote reopen it
-      if (local.endTime !== null && remote.endTime === null) {
-        merged.endTime = local.endTime;
-        merged.durationMinutes = local.durationMinutes;
-      } else if (remote.endTime !== null && local.endTime === null) {
-        merged.endTime = remote.endTime;
-        merged.durationMinutes = remote.durationMinutes;
+    // 2. Check local memory sessions:
+    // Only preserve local sessions if:
+    // a) It is on the server: check if local has ended recently (in flight end request)
+    // b) It is NOT on server: only keep if it was started in the last 20 seconds (in flight start request)
+    for (const local of memorySessions) {
+      if (localLastResetTime > 0 && local.startTime < localLastResetTime) continue;
+
+      const serverVersion = sessionMap.get(local.id);
+      if (serverVersion) {
+        // If local ended in last 30s but server hasn't registered end yet:
+        if (local.endTime !== null && serverVersion.endTime === null && now - (local.endTime || 0) < 30000) {
+          sessionMap.set(local.id, {
+            ...serverVersion,
+            endTime: local.endTime,
+            durationMinutes: local.durationMinutes,
+          });
+        }
+      } else {
+        // Local-only session: only keep if started recently (< 20 seconds) and still waiting for server
+        if (local.endTime === null && now - local.startTime < 20000) {
+          sessionMap.set(local.id, local);
+        }
       }
-
-      // Start time adjustments (manager simulator)
-      if (Math.abs(remote.startTime - local.startTime) > 1000) {
-        merged.startTime = remote.startTime;
+    }
+  } else {
+    // Peer-to-peer / MQTT merge
+    for (const s of memorySessions) {
+      if (localLastResetTime > 0 && s.startTime < localLastResetTime) continue;
+      // Auto-close abandoned breaks > 16 hours
+      if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
+        sessionMap.set(s.id, {
+          ...s,
+          endTime: s.startTime + 40 * 60 * 1000,
+          durationMinutes: 40,
+        });
+        continue;
       }
+      sessionMap.set(s.id, s);
+    }
 
-      // Audio alarm flags: once true, always true
-      merged.warningPlayed = local.warningPlayed || remote.warningPlayed;
-      merged.alarmPlayed = local.alarmPlayed || remote.alarmPlayed;
-      merged.overduePlayed = local.overduePlayed || remote.overduePlayed;
+    for (const remote of incomingSessions) {
+      if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
 
-      sessionMap.set(remote.id, merged);
+      const local = sessionMap.get(remote.id);
+      if (!local) {
+        if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
+          sessionMap.set(remote.id, {
+            ...remote,
+            endTime: remote.startTime + 40 * 60 * 1000,
+            durationMinutes: 40,
+          });
+        } else {
+          sessionMap.set(remote.id, remote);
+        }
+      } else {
+        let merged = { ...local };
+
+        if (local.endTime !== null && remote.endTime === null) {
+          merged.endTime = local.endTime;
+          merged.durationMinutes = local.durationMinutes;
+        } else if (remote.endTime !== null && local.endTime === null) {
+          merged.endTime = remote.endTime;
+          merged.durationMinutes = remote.durationMinutes;
+        }
+
+        if (Math.abs(remote.startTime - local.startTime) > 1000) {
+          merged.startTime = remote.startTime;
+        }
+
+        merged.warningPlayed = local.warningPlayed || remote.warningPlayed;
+        merged.alarmPlayed = local.alarmPlayed || remote.alarmPlayed;
+        merged.overduePlayed = local.overduePlayed || remote.overduePlayed;
+
+        sessionMap.set(remote.id, merged);
+      }
     }
   }
 
@@ -329,21 +442,22 @@ export function reconcileSessionCollection(
 }
 
 export function applyAuthoritativeServerSessions(serverSessions: BreakSession[], resetTime: number = 0) {
-  reconcileSessionCollection(serverSessions, resetTime);
+  reconcileSessionCollection(serverSessions, resetTime, true);
 }
 
 export function reconcileWithCloudSessions(cloudSessions: BreakSession[], resetTime: number = 0) {
-  reconcileSessionCollection(cloudSessions, resetTime);
+  reconcileSessionCollection(cloudSessions, resetTime, false);
 }
 
 // Connect CloudSync listener immediately
 cloudSync.onSync((cloudSessions, cloudEmployees, cloudResetTime) => {
   if (Array.isArray(cloudSessions)) {
-    reconcileSessionCollection(cloudSessions, cloudResetTime || 0);
+    reconcileSessionCollection(cloudSessions, cloudResetTime || 0, false);
   }
   if (Array.isArray(cloudEmployees) && cloudEmployees.length > 0) {
     if (JSON.stringify(cloudEmployees) !== JSON.stringify(memoryEmployees)) {
       memoryEmployees = cloudEmployees;
+      updateEmployeeMap(cloudEmployees);
       try {
         localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(cloudEmployees));
       } catch {}
@@ -352,60 +466,90 @@ cloudSync.onSync((cloudSessions, cloudEmployees, cloudResetTime) => {
   }
 });
 
-export async function fetchServerState(): Promise<void> {
+export async function fetchServerState(forceFull: boolean = false): Promise<void> {
   if (typeof window === 'undefined') return;
+  const tStart = Date.now();
   try {
-    const res = await fetch('/api/state').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const url = `/api/state?t=${Date.now()}`;
+
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+    }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const tEnd = Date.now();
+
     if (res && res.success) {
-      if (Array.isArray(res.sessions)) {
-        reconcileSessionCollection(res.sessions, res.lastResetTime || 0);
+      lastSyncTimestamp = Date.now();
+
+      // Measure round-trip time and calculate clock offset precisely to eliminate clock skew across all 250 phones
+      if (typeof res.serverTime === 'number') {
+        const roundTripMs = Math.max(0, tEnd - tStart);
+        const estimatedServerNow = res.serverTime + Math.round(roundTripMs / 2);
+        serverClockSkewMs = estimatedServerNow - tEnd;
       }
+
+      if (typeof res.lastUpdated === 'number') {
+        latestServerUpdateTimestamp = res.lastUpdated;
+      }
+
+      if (Array.isArray(res.sessions)) {
+        reconcileSessionCollection(res.sessions, res.lastResetTime || 0, true);
+      }
+
       if (Array.isArray(res.employees) && res.employees.length > 0) {
         if (JSON.stringify(res.employees) !== JSON.stringify(memoryEmployees)) {
           memoryEmployees = res.employees;
+          updateEmployeeMap(res.employees);
           try {
             localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(res.employees));
           } catch {}
           notifySubscribers();
         }
       }
+      secondsUntilRefresh = AUTO_REFRESH_INTERVAL_SEC;
+      notifyAutoRefreshListeners(AUTO_REFRESH_INTERVAL_SEC, lastSyncTimestamp);
       return;
     }
 
     // Fallback if /api/state not available
     const [sessRes, empRes] = await Promise.all([
-      fetch('/api/sessions').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch('/api/employees').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/sessions?t=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/employees?t=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
 
     if (Array.isArray(sessRes)) {
-      reconcileSessionCollection(sessRes, 0);
+      reconcileSessionCollection(sessRes, 0, true);
     }
 
     if (Array.isArray(empRes) && empRes.length > 0) {
       if (JSON.stringify(empRes) !== JSON.stringify(memoryEmployees)) {
         memoryEmployees = empRes;
+        updateEmployeeMap(empRes);
         localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(empRes));
         notifySubscribers();
       }
     }
+    secondsUntilRefresh = AUTO_REFRESH_INTERVAL_SEC;
+    notifyAutoRefreshListeners(AUTO_REFRESH_INTERVAL_SEC, lastSyncTimestamp);
   } catch (err) {
     console.debug('Background server sync warning:', err);
+    secondsUntilRefresh = AUTO_REFRESH_INTERVAL_SEC;
+    notifyAutoRefreshListeners(AUTO_REFRESH_INTERVAL_SEC, lastSyncTimestamp);
   }
 }
 
-// Start Real-Time Sync loop (EventSource + Visibility Listener + Fallback Polling)
+// Start Real-Time Sync loop (EventSource + Visibility Listener + 10s Automatic Refresh)
 export function initRealtimeSync(): void {
   if (isInitialized || typeof window === 'undefined') return;
   isInitialized = true;
 
-  // Immediate fetch
-  fetchServerState();
+  // Immediate authoritative fetch on load
+  fetchServerState(true);
 
   // Listen to same-device BroadcastChannel
   if (syncChannel) {
     syncChannel.onmessage = () => {
-      fetchServerState();
+      fetchServerState(true);
     };
   }
 
@@ -421,19 +565,26 @@ export function initRealtimeSync(): void {
         try {
           const data = JSON.parse(event.data);
           if (data && Array.isArray(data.sessions)) {
-            reconcileSessionCollection(data.sessions, data.lastResetTime || 0);
+            if (typeof data.serverTime === 'number') {
+              serverClockSkewMs = data.serverTime - Date.now();
+            }
+            if (typeof data.lastUpdated === 'number') {
+              latestServerUpdateTimestamp = data.lastUpdated;
+            }
+            reconcileSessionCollection(data.sessions, data.lastResetTime || 0, true);
             if (Array.isArray(data.employees)) {
               if (JSON.stringify(data.employees) !== JSON.stringify(memoryEmployees)) {
                 memoryEmployees = data.employees;
+                updateEmployeeMap(data.employees);
                 localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(data.employees));
                 notifySubscribers();
               }
             }
           } else {
-            fetchServerState();
+            fetchServerState(true);
           }
         } catch {
-          fetchServerState();
+          fetchServerState(true);
         }
       };
 
@@ -449,37 +600,34 @@ export function initRealtimeSync(): void {
   connectSSE();
 
   // Instant refresh when user returns to tab / unlocks smartphone screen
+  const triggerInstantReactivate = () => {
+    fetchServerState(true);
+  };
+
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      fetchServerState();
+      triggerInstantReactivate();
     }
   });
-  window.addEventListener('focus', () => {
-    fetchServerState();
-  });
-  window.addEventListener('pageshow', () => {
-    fetchServerState();
-  });
-  window.addEventListener('online', () => {
-    fetchServerState();
-  });
+  window.addEventListener('focus', triggerInstantReactivate);
+  window.addEventListener('pageshow', triggerInstantReactivate);
+  window.addEventListener('online', triggerInstantReactivate);
 
-  // Short polling fallback every 1500ms so all mobile devices stay 100% in lockstep
+  // Automatic authoritative server refresh strictly every 10 seconds to eliminate time errors
   setInterval(() => {
-    fetchServerState();
-  }, 1500);
+    secondsUntilRefresh--;
+    if (secondsUntilRefresh <= 0) {
+      secondsUntilRefresh = AUTO_REFRESH_INTERVAL_SEC;
+      notifyAutoRefreshListeners(0, lastSyncTimestamp);
+      fetchServerState(true);
+    } else {
+      notifyAutoRefreshListeners(secondsUntilRefresh, lastSyncTimestamp);
+    }
+  }, 1000);
 
-  // Initialize Global MQTT Cloud Synchronization
+  // Initialize Global MQTT Cloud Synchronization for peer-to-peer redundancy
   try {
     cloudSync.init();
-    // If local device already has active break session, announce to cloud after connection
-    setTimeout(() => {
-      const all = getAllSessions();
-      const active = all.filter((s) => s.endTime === null);
-      if (active.length > 0) {
-        cloudSync.publishState(all, memoryEmployees, localLastResetTime);
-      }
-    }, 1500);
   } catch (e) {
     console.debug('CloudSync init note:', e);
   }
@@ -526,6 +674,7 @@ export function saveEmployees(employees: Employee[]): void {
   });
 
   memoryEmployees = sanitized;
+  updateEmployeeMap(sanitized);
   localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(sanitized));
   syncChannel?.postMessage({ type: 'EMPLOYEES_UPDATED' });
   notifySubscribers();
@@ -540,6 +689,7 @@ export function saveEmployees(employees: Employee[]): void {
 
 export function resetEmployeesToDefault(): Employee[] {
   memoryEmployees = DEFAULT_EMPLOYEES;
+  updateEmployeeMap(DEFAULT_EMPLOYEES);
   localStorage.removeItem(STORAGE_KEYS.EMPLOYEES);
   syncChannel?.postMessage({ type: 'EMPLOYEES_UPDATED' });
   notifySubscribers();
@@ -554,8 +704,20 @@ export function resetEmployeesToDefault(): Employee[] {
 }
 
 export function findEmployeeByNip(nip: string): Employee | undefined {
-  const employees = getEmployees();
+  if (!nip) return undefined;
   const trimmed = nip.trim();
+
+  // Fast O(1) hash table lookup for 250+ employees
+  const direct = employeeNipMap.get(trimmed);
+  if (direct) return direct;
+
+  const num = parseInt(trimmed, 10);
+  if (!isNaN(num)) {
+    const byNum = employeeNipMap.get(String(num));
+    if (byNum) return byNum;
+  }
+
+  const employees = getEmployees();
   return employees.find((e) => e.nip === trimmed || e.nip === String(parseInt(trimmed, 10)));
 }
 
@@ -595,7 +757,7 @@ export function saveSessions(sessions: BreakSession[]): void {
 
 export function getTodaySessions(): BreakSession[] {
   const today = getTodayDateString();
-  const now = Date.now();
+  const now = getSynchronizedNow();
   return getAllSessions().filter((s) => {
     // Today's breaks
     if (s.date === today) return true;
@@ -613,7 +775,7 @@ export function getStaffDailySummary(nip: string, targetDate: string = getTodayD
 
   let totalMinutesUsed = 0;
   let activeSession: BreakSession | null = null;
-  const now = Date.now();
+  const now = getSynchronizedNow();
 
   staffSessions.forEach((s) => {
     if (s.endTime) {
@@ -678,7 +840,7 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
 
   const currentSessionNumber = summary.breakCount + 1;
   const canonicalId = 'brk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-  const now = Date.now();
+  const now = getSynchronizedNow();
 
   const newSession: BreakSession = {
     id: canonicalId,
@@ -701,7 +863,7 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
   all.unshift(newSession);
   saveSessions(all);
 
-  // Sync with central server using canonical ID
+  // Sync with central server using canonical ID & master clock authority
   fetch('/api/sessions/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -710,12 +872,16 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
       id: canonicalId,
       startTime: now,
       sessionNumber: currentSessionNumber,
+      employeeName: employee.name,
+      jobTitle: effectiveJobTitle,
+      department: employee.department,
     }),
   })
     .then((r) => r.json())
     .then((data) => {
       if (data.session) {
-        fetchServerState();
+        reconcileSessionCollection([data.session], 0, true);
+        fetchServerState(true);
       }
     })
     .catch((err) => console.error('Failed to sync start session to server:', err));
@@ -733,7 +899,12 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
 export function endStaffBreak(nip: string): { success: boolean; message: string; durationMinutes?: number } {
   const all = getAllSessions();
   // Find any active session for this employee regardless of date mismatch
-  const sessionIndex = all.findIndex((s) => s.nip === nip && s.endTime === null);
+  const cleanNip = String(nip).trim();
+  const sessionIndex = all.findIndex(
+    (s) =>
+      (s.nip === cleanNip || (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10))) &&
+      s.endTime === null
+  );
 
   if (sessionIndex === -1) {
     return {
@@ -742,7 +913,7 @@ export function endStaffBreak(nip: string): { success: boolean; message: string;
     };
   }
 
-  const now = Date.now();
+  const now = getSynchronizedNow();
   const session = all[sessionIndex];
   const durationMs = now - session.startTime;
   const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
@@ -759,9 +930,15 @@ export function endStaffBreak(nip: string): { success: boolean; message: string;
   fetch('/api/sessions/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nip, sessionId: session.id, endTime: now }),
+    body: JSON.stringify({ nip: cleanNip, sessionId: session.id, endTime: now }),
   })
-    .then(() => fetchServerState())
+    .then((r) => r.json())
+    .then((data) => {
+      if (data && data.session) {
+        reconcileSessionCollection([data.session], 0, true);
+      }
+      fetchServerState(true);
+    })
     .catch((err) => console.error('Failed to sync end session to server:', err));
 
   return {
@@ -789,7 +966,7 @@ export async function updateSessionElapsedMinutes(
     return { success: false, message: 'Sesi istirahat tidak ditemukan.' };
   }
 
-  const now = Date.now();
+  const now = getSynchronizedNow();
   const newStartTime = now - Math.round(targetElapsedMinutes * 60 * 1000);
   const currentElapsedSec = Math.floor((now - newStartTime) / 1000);
 

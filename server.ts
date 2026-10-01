@@ -29,16 +29,19 @@ interface ServerState {
 
 function cleanStaleSessions(sessions: BreakSession[]): BreakSession[] {
   const now = Date.now();
-  return sessions.map((s) => {
-    if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
-      return {
-        ...s,
-        endTime: s.startTime + 40 * 60 * 1000,
-        durationMinutes: 40,
-      };
-    }
-    return s;
-  });
+  const sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
+  return sessions
+    .filter((s) => s.startTime > sevenDaysAgo || s.endTime === null)
+    .map((s) => {
+      if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
+        return {
+          ...s,
+          endTime: s.startTime + 40 * 60 * 1000,
+          durationMinutes: 40,
+        };
+      }
+      return s;
+    });
 }
 
 function loadState(): ServerState {
@@ -346,14 +349,22 @@ async function startServer() {
     });
   });
 
-  // Get Complete State (Atomic multi-device snapshot)
+  // Get Complete State (Atomic multi-device snapshot with high-efficiency 10s polling)
   app.get('/api/state', (req: Request, res: Response) => {
     serverState.sessions = cleanStaleSessions(serverState.sessions);
+    const serverTime = Date.now();
+
+    // Strictly disable caching so client browsers & mobile webviews never get stale state
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     res.json({
       success: true,
+      notModified: false,
       lastUpdated: serverState.lastUpdated,
       lastResetTime: serverState.lastResetTime || 0,
-      serverTime: Date.now(),
+      serverTime,
       today: getTodayString(),
       sessions: serverState.sessions,
       employees: serverState.employees,
@@ -363,6 +374,7 @@ async function startServer() {
 
   // Get Employees
   app.get('/api/employees', (req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.json(serverState.employees);
   });
 
@@ -381,6 +393,7 @@ async function startServer() {
   // Get Sessions (optional ?today=1 or ?nip=...)
   app.get('/api/sessions', (req: Request, res: Response) => {
     serverState.sessions = cleanStaleSessions(serverState.sessions);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const { today, nip } = req.query;
     let list = serverState.sessions;
 
@@ -389,7 +402,10 @@ async function startServer() {
       list = list.filter((s) => s.date === todayStr || s.endTime === null);
     }
     if (typeof nip === 'string' && nip.trim()) {
-      list = list.filter((s) => s.nip === nip.trim());
+      const cleanNip = nip.trim();
+      list = list.filter(
+        (s) => s.nip === cleanNip || parseInt(s.nip, 10) === parseInt(cleanNip, 10)
+      );
     }
 
     res.json(list);
@@ -417,24 +433,42 @@ async function startServer() {
         sessions: serverState.sessions,
         lastUpdated: serverState.lastUpdated,
         lastResetTime: serverState.lastResetTime || 0,
+        serverTime: Date.now(),
       });
     }
     res.status(400).json({ success: false, message: 'Invalid sessions payload' });
   });
 
-  // Start Break Session (Canonical ID supported)
+  // Start Break Session (Canonical ID supported, Master Clock Authority)
   app.post('/api/sessions/start', (req: Request, res: Response) => {
-    const { nip, id, startTime, sessionNumber } = req.body;
+    const { nip, id, startTime, sessionNumber, employeeName, jobTitle, department } = req.body;
     if (!nip) {
       return res.status(400).json({ success: false, message: 'NIP wajib diisi.' });
     }
 
     const cleanNip = String(nip).trim();
-    const employee = serverState.employees.find(
+    let employee = serverState.employees.find(
       (e) =>
         e.nip === cleanNip ||
         (!isNaN(parseInt(cleanNip, 10)) && parseInt(e.nip, 10) === parseInt(cleanNip, 10))
     );
+
+    // Fallback: If employee not found in server list, auto-register to prevent staff lockout
+    if (!employee && employeeName) {
+      employee = {
+        nip: cleanNip,
+        name: String(employeeName).trim(),
+        jobTitle: jobTitle || 'SMT',
+        department: department || 'SMT',
+        storeZone: 'Informa Alam Sutera',
+        birthDate: '01/01/1990',
+        password: 'password',
+        role: 'staff',
+      };
+      serverState.employees.push(employee);
+      saveState(serverState);
+    }
+
     if (!employee) {
       return res.status(404).json({ success: false, message: 'Karyawan tidak ditemukan.' });
     }
@@ -450,12 +484,17 @@ async function startServer() {
           success: true,
           message: 'Sesi istirahat sudah tercatat.',
           session: existing,
+          serverTime: Date.now(),
         });
       }
     }
 
     const today = getTodayString();
-    const staffSessionsToday = serverState.sessions.filter((s) => s.nip === employee.nip && (s.date === today || s.endTime === null));
+    const staffSessionsToday = serverState.sessions.filter(
+      (s) =>
+        (s.nip === employee.nip || parseInt(s.nip, 10) === parseInt(employee.nip, 10)) &&
+        (s.date === today || s.endTime === null)
+    );
 
     // Check if already currently on break
     const active = staffSessionsToday.find((s) => s.endTime === null);
@@ -464,6 +503,7 @@ async function startServer() {
         success: true,
         message: 'Anda sedang dalam sesi istirahat aktif.',
         session: active,
+        serverTime: Date.now(),
       });
     }
 
@@ -483,7 +523,12 @@ async function startServer() {
       ? id
       : 'brk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-    const now = typeof startTime === 'number' ? startTime : Date.now();
+    // Master clock authority: if client's time has reasonable skew (< 4000ms), respect it, else snap to server master clock
+    const serverMasterNow = Date.now();
+    const effectiveStartTime =
+      typeof startTime === 'number' && Math.abs(serverMasterNow - startTime) < 4000
+        ? startTime
+        : serverMasterNow;
 
     const newSession: BreakSession = {
       id: newSessionId,
@@ -493,7 +538,7 @@ async function startServer() {
       department: employee.department,
       storeZone: 'Informa Alam Sutera',
       date: today,
-      startTime: now,
+      startTime: effectiveStartTime,
       endTime: null,
       durationMinutes: 0,
       sessionNumber: currentSessionNumber,
@@ -510,17 +555,23 @@ async function startServer() {
       success: true,
       message: `${sessionLabel} berhasil dimulai!`,
       session: newSession,
+      serverTime: Date.now(),
     });
   });
 
-  // End Break Session
+  // End Break Session (Master Clock Authority)
   app.post('/api/sessions/end', (req: Request, res: Response) => {
     const { nip, sessionId, endTime } = req.body;
-    const today = getTodayString();
+    const cleanNip = nip ? String(nip).trim() : '';
 
     const idx = serverState.sessions.findIndex((s) => {
-      if (sessionId) return s.id === sessionId;
-      if (nip) return s.nip === String(nip).trim() && s.endTime === null;
+      if (sessionId && s.id === sessionId) return true;
+      if (cleanNip) {
+        const matchesNip =
+          s.nip === cleanNip ||
+          (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10));
+        return matchesNip && s.endTime === null;
+      }
       return false;
     });
 
@@ -540,10 +591,16 @@ async function startServer() {
         message: `Istirahat selesai! Durasi sesi: ${session.durationMinutes} menit.`,
         session,
         durationMinutes: session.durationMinutes,
+        serverTime: Date.now(),
       });
     }
 
-    const finishTime = typeof endTime === 'number' ? endTime : Date.now();
+    const serverMasterNow = Date.now();
+    const finishTime =
+      typeof endTime === 'number' && Math.abs(serverMasterNow - endTime) < 4000
+        ? endTime
+        : serverMasterNow;
+
     const durationMs = finishTime - session.startTime;
     const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
 
@@ -559,6 +616,7 @@ async function startServer() {
       message: `Istirahat selesai! Durasi sesi: ${durationMinutes} menit.`,
       session: serverState.sessions[idx],
       durationMinutes,
+      serverTime: Date.now(),
     });
   });
 

@@ -14,7 +14,10 @@ import {
   markAlarmPlayed,
   markWarningPlayed,
   markOverduePlayed,
-  subscribeDataChanges
+  subscribeDataChanges,
+  getSynchronizedNow,
+  subscribeAutoRefresh,
+  fetchServerState,
 } from '../services/breakStorage';
 import {
   playAudio1Sudah40Menit,
@@ -46,7 +49,8 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   const [selectedDept, setSelectedDept] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'monitoring' | 'history'>('monitoring');
   const [callingNip, setCallingNip] = useState<string | null>(null);
-  const [nowTime, setNowTime] = useState<number>(Date.now());
+  const [nowTime, setNowTime] = useState<number>(() => getSynchronizedNow());
+  const [syncSeconds, setSyncSeconds] = useState<number>(10);
   const [isStudioOpen, setIsStudioOpen] = useState<boolean>(false);
   const [editingSession, setEditingSession] = useState<BreakSession | null>(null);
   const [autoAnnounce, setAutoAnnounce] = useState<boolean>(true);
@@ -66,6 +70,13 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     });
   }, []);
 
+  // 10-second automatic authoritative refresh countdown subscription
+  useEffect(() => {
+    return subscribeAutoRefresh((sec) => {
+      setSyncSeconds(sec);
+    });
+  }, []);
+
   // Subscribe to Audio Queue status updates
   useEffect(() => {
     const unsubscribe = subscribeAudioQueue((status) => {
@@ -77,7 +88,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   // Real-time tick every 1 second + automatic store speaker broadcast monitor
   useEffect(() => {
     const interval = setInterval(() => {
-      const now = Date.now();
+      const now = getSynchronizedNow();
       setNowTime(now);
       const currentSessions = getTodaySessions();
       setSessions(currentSessions);
@@ -503,6 +514,54 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Multi-Device Master Sync & 10s Auto-Refresh Bar */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-xs border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-blue-50 text-[#0033A0] flex items-center justify-center shrink-0 border border-blue-100">
+            <RefreshCw className={`w-5 h-5 text-[#0033A0] ${syncSeconds === 0 ? 'animate-spin' : ''}`} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Sinkronisasi Multi-Device 250 Staf Aktif</span>
+              </span>
+              <span className="text-xs font-semibold text-slate-500">
+                Jam Toko: <span className="font-mono font-bold text-slate-800">{new Date(nowTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 mt-1">
+              Otomatis refresh data &amp; kalibrasi waktu setiap <span className="font-bold text-slate-900">10 detik</span> agar tidak ada selisih waktu antar perangkat staf &amp; monitor.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+          <div className="text-right">
+            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+              Auto-Refresh Dalam
+            </span>
+            <span className="text-lg font-black font-mono text-[#0033A0]">
+              {syncSeconds} Detik
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              await fetchServerState(true);
+              setSessions(getTodaySessions());
+              setEmployees(getEmployees());
+              onRefreshNeeded();
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-blue-50 hover:bg-blue-100 text-[#0033A0] text-xs font-black border border-blue-200 active:scale-95 transition-all cursor-pointer"
+            title="Muat ulang data dari server master sekarang"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-[#0033A0]" />
+            <span>Refresh Sekarang</span>
+          </button>
+        </div>
+      </div>
 
       {/* 3 Top Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

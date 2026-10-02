@@ -3,6 +3,7 @@
 import { Employee, BreakSession, DailyStaffSummary } from '../types';
 import { DEFAULT_EMPLOYEES, cleanEmployeeName } from '../data/defaultEmployees';
 import { cloudSync } from './cloudSyncService';
+import { applyServerCustomAudios } from './soundService';
 
 const STORAGE_KEYS = {
   EMPLOYEES: 'informa_employees_v1',
@@ -506,6 +507,10 @@ export async function fetchServerState(forceFull: boolean = false): Promise<void
           notifySubscribers();
         }
       }
+
+      if (res.customAudios) {
+        applyServerCustomAudios(res.customAudios);
+      }
       secondsUntilRefresh = AUTO_REFRESH_INTERVAL_SEC;
       notifyAutoRefreshListeners(AUTO_REFRESH_INTERVAL_SEC, lastSyncTimestamp);
       return;
@@ -564,6 +569,10 @@ export function initRealtimeSync(): void {
       localSse.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data && data.type === 'CUSTOM_AUDIO_UPDATED' && data.audios) {
+            applyServerCustomAudios(data.audios);
+            return;
+          }
           if (data && Array.isArray(data.sessions)) {
             if (typeof data.serverTime === 'number') {
               serverClockSkewMs = data.serverTime - Date.now();

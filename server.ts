@@ -298,7 +298,33 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '25mb' }));
+  app.use(express.static('public'));
+
+  const CUSTOM_AUDIO_FILE = path.join(DATA_DIR, 'custom_audios.json');
+
+  function loadCustomAudios(): Record<string, string> {
+    try {
+      if (fs.existsSync(CUSTOM_AUDIO_FILE)) {
+        return JSON.parse(fs.readFileSync(CUSTOM_AUDIO_FILE, 'utf-8'));
+      }
+    } catch (e) {
+      console.error('Failed loading custom audios:', e);
+    }
+    return {
+      audio2: '/audio/warning_5min.mp3',
+      audio1: '/audio/warning_40min.mp3',
+      audio3: '/audio/warning_overdue.mp3',
+    };
+  }
+
+  function saveCustomAudios(data: Record<string, string>) {
+    try {
+      fs.writeFileSync(CUSTOM_AUDIO_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {
+      console.error('Failed saving custom audios:', e);
+    }
+  }
 
   // SSE Stream endpoint for real-time live sync across devices
   app.get('/api/events', (req: Request, res: Response) => {
@@ -368,8 +394,81 @@ async function startServer() {
       today: getTodayString(),
       sessions: serverState.sessions,
       employees: serverState.employees,
+      customAudios: loadCustomAudios(),
       activeCount: serverState.sessions.filter((s) => s.endTime === null).length,
     });
+  });
+
+  // Get Custom Audios across all devices
+  app.get('/api/custom-audio', (req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const audios = loadCustomAudios();
+    res.json({ success: true, audios });
+  });
+
+  // Save / Update Custom Audio from any device and broadcast to all devices
+  app.post('/api/custom-audio', (req: Request, res: Response) => {
+    const { type, dataUrl } = req.body;
+    if (!type || !['audio1', 'audio2', 'audio3'].includes(type) || !dataUrl) {
+      return res.status(400).json({ success: false, message: 'Invalid audio payload' });
+    }
+    const audios = loadCustomAudios();
+    audios[type] = dataUrl;
+    audios.lastUpdated = String(Date.now());
+    saveCustomAudios(audios);
+
+    // Write binary file to public/audio so all devices can fetch it directly
+    try {
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        const buffer = Buffer.from(match[2], 'base64');
+        const filename =
+          type === 'audio2'
+            ? 'warning_5min.mp3'
+            : type === 'audio1'
+            ? 'warning_40min.mp3'
+            : 'warning_overdue.mp3';
+        const publicAudioDir = path.join(process.cwd(), 'public', 'audio');
+        if (!fs.existsSync(publicAudioDir)) fs.mkdirSync(publicAudioDir, { recursive: true });
+        fs.writeFileSync(path.join(publicAudioDir, filename), buffer);
+
+        const distAudioDir = path.join(process.cwd(), 'dist', 'audio');
+        if (fs.existsSync(distAudioDir)) {
+          fs.writeFileSync(path.join(distAudioDir, filename), buffer);
+        }
+      }
+    } catch (e) {
+      console.error('Failed writing binary audio file:', e);
+    }
+
+    // Notify all SSE clients
+    const payload = JSON.stringify({
+      type: 'CUSTOM_AUDIO_UPDATED',
+      audios,
+      updatedType: type,
+    });
+    for (const client of sseClients) {
+      try {
+        client.write(`data: ${payload}\n\n`);
+      } catch {}
+    }
+
+    res.json({ success: true, audios });
+  });
+
+  // Reset Custom Audio to default
+  app.delete('/api/custom-audio/:type', (req: Request, res: Response) => {
+    const { type } = req.params;
+    const audios = loadCustomAudios();
+    if (type === 'audio2') {
+      audios.audio2 = '/audio/warning_5min.mp3';
+    } else if (type === 'audio1') {
+      audios.audio1 = '/audio/warning_40min.mp3';
+    } else if (type === 'audio3') {
+      audios.audio3 = '/audio/warning_overdue.mp3';
+    }
+    saveCustomAudios(audios);
+    res.json({ success: true, audios });
   });
 
   // Get Employees

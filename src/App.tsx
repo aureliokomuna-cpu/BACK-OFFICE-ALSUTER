@@ -5,6 +5,7 @@ import { LoginView } from './components/LoginView';
 import { StaffBreakView } from './components/StaffBreakView';
 import { ManagerMonitorView } from './components/ManagerMonitorView';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
+import { AudioUploadModal } from './components/AudioUploadModal';
 import { seedInitialDemoIfEmpty, getEmployees, subscribeDataChanges } from './services/breakStorage';
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
 
   const [activeView, setActiveView] = useState<'staff' | 'manager'>('staff');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isAudioUploadOpen, setIsAudioUploadOpen] = useState<boolean>(false);
   const [refreshKey, setRefreshKey] = useState<number>(0);
 
   // Initialize demo data if today's log is empty
@@ -77,6 +79,7 @@ export default function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenAudioUpload={() => setIsAudioUploadOpen(true)}
         activeView={activeView}
         onSwitchView={(v) => setActiveView(v)}
       />
@@ -120,6 +123,13 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onEmployeesUpdated={() => setRefreshKey((prev) => prev + 1)}
+      />
+
+      {/* Quick Audio / Voice Note Upload Modal */}
+      <AudioUploadModal
+        isOpen={isAudioUploadOpen}
+        onClose={() => setIsAudioUploadOpen(false)}
+        targetType="audio2"
       />
     </div>
   );

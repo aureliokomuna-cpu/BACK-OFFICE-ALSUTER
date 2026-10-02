@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Coffee, CheckCircle, Clock, AlertCircle, Volume2, ShieldAlert, User, ArrowRight, RefreshCw } from 'lucide-react';
+import { Coffee, CheckCircle, Clock, AlertCircle, Volume2, ShieldAlert, User, ArrowRight, RefreshCw, Upload, Play } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Employee, DailyStaffSummary } from '../types';
 import {
@@ -20,6 +20,8 @@ import {
   playAudio3UdahLewat40Menit,
   playStoreChime,
   unlockAudio,
+  saveCustomAudio,
+  playAudioElement,
 } from '../services/soundService';
 
 interface StaffBreakViewProps {
@@ -37,6 +39,7 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [alertMessage, setAlertMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [syncCountdown, setSyncCountdown] = useState<number>(10);
+  const localPlayedAlertsRef = React.useRef<Set<string>>(new Set());
 
   // Sync summary & real-time clock
   const refreshSummary = () => {
@@ -79,7 +82,9 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
         setElapsedSeconds(elapsedSec);
 
         // 1. Audio 2: Sisa 5 menit lagi (menit ke-35 s.d < 40)
-        if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !current.activeSession.warningPlayed) {
+        const warn5mKey = `staff_warn5m_${current.activeSession.id}`;
+        if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !localPlayedAlertsRef.current.has(warn5mKey)) {
+          localPlayedAlertsRef.current.add(warn5mKey);
           current.activeSession.warningPlayed = true;
           markWarningPlayed(current.activeSession.id);
           unlockAudio();
@@ -88,7 +93,9 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
         }
 
         // 2. Audio 1: Tepat 40 menit habis (menit ke-40 s.d < 41)
-        if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !current.activeSession.alarmPlayed) {
+        const warn40mKey = `staff_warn40m_${current.activeSession.id}`;
+        if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !localPlayedAlertsRef.current.has(warn40mKey)) {
+          localPlayedAlertsRef.current.add(warn40mKey);
           current.activeSession.alarmPlayed = true;
           markAlarmPlayed(current.activeSession.id);
           unlockAudio();
@@ -97,7 +104,9 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
         }
 
         // 3. Audio 3: Sudah lewat 40 menit (menit ke-41 ke atas)
-        if (elapsedSec >= 41 * 60 && !current.activeSession.overduePlayed) {
+        const warnOverdueKey = `staff_overdue_${current.activeSession.id}`;
+        if (elapsedSec >= 41 * 60 && !localPlayedAlertsRef.current.has(warnOverdueKey)) {
+          localPlayedAlertsRef.current.add(warnOverdueKey);
           current.activeSession.overduePlayed = true;
           markOverduePlayed(current.activeSession.id);
           unlockAudio();
@@ -429,6 +438,54 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
                   </span>
                 )}
               </p>
+            </div>
+
+            {/* Indikator & Uji Notifikasi Suara 5 Menit */}
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3.5 border border-white/20 text-xs text-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 text-left">
+                <Volume2 className="w-5 h-5 text-[#FFD100] shrink-0" />
+                <div>
+                  <span className="font-bold text-white block">Alarm Peringatan Sisa 5 Menit:</span>
+                  <span className="text-[11px] text-blue-200">"Hai guys, waktunya 5 menit lagi, siap-siap ya!"</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto flex-wrap">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    unlockAudio();
+                    await playAudio2Sisa5Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs shrink-0 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Cek bunyi suara peringatan 5 menit"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Tes Suara</span>
+                </button>
+                <label className="px-3 py-1.5 rounded-xl bg-[#FFD100] hover:bg-yellow-400 text-blue-950 font-black text-xs shrink-0 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload File Suara</span>
+                  <input
+                    type="file"
+                    accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.aac"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = async () => {
+                        const dataUrl = reader.result as string;
+                        saveCustomAudio('audio2', dataUrl);
+                        unlockAudio();
+                        await playAudioElement(dataUrl);
+                        alert(`File suara "${file.name}" berhasil dipasang & disinkronkan ke seluruh HP/perangkat!`);
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
             </div>
 
             {/* Tombol Selesai Istirahat */}

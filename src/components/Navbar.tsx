@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, Settings, ShieldCheck, UserCheck, Clock, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { LogOut, Settings, ShieldCheck, UserCheck, Clock, RefreshCw, Wifi, WifiOff, Mic, Volume2 } from 'lucide-react';
 import { Employee } from '../types';
 import { fetchServerState, broadcastCurrentStateToCloud, getSynchronizedNow, subscribeAutoRefresh } from '../services/breakStorage';
 import { cloudSync } from '../services/cloudSyncService';
@@ -8,6 +8,7 @@ interface NavbarProps {
   currentUser: Employee | null;
   onLogout: () => void;
   onOpenSettings: () => void;
+  onOpenAudioUpload?: () => void;
   activeView: 'staff' | 'manager';
   onSwitchView: (view: 'staff' | 'manager') => void;
 }
@@ -16,6 +17,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onLogout,
   onOpenSettings,
+  onOpenAudioUpload,
   activeView,
   onSwitchView,
 }) => {
@@ -163,6 +165,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Upload Voice / Audio button */}
+              {onOpenAudioUpload && (
+                <button
+                  id="btn-nav-audio-upload"
+                  type="button"
+                  onClick={onOpenAudioUpload}
+                  title="Upload File Suara Peringatan 5 Menit"
+                  className="px-2.5 py-1 rounded-full bg-[#FFD100] hover:bg-yellow-400 text-blue-950 flex items-center gap-1.5 font-black text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                >
+                  <Volume2 className="w-3.5 h-3.5 text-blue-950" />
+                  <span className="hidden sm:inline">Upload Suara 5m</span>
+                </button>
+              )}
 
               {/* Settings button */}
               <button

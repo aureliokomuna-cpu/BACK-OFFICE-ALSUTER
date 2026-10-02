@@ -1,5 +1,6 @@
 // Sound and Audio service for Informa Alam Sutera Break Management
 // Supports both natural Indonesian Female Speech synthesis and custom uploaded/recorded voice notes
+import { DEFAULT_AUDIO_5MIN, DEFAULT_AUDIO_40MIN, DEFAULT_AUDIO_OVERDUE, AUDIO_FILE_PATHS } from './defaultAudios';
 
 const STORAGE_KEYS = {
   AUDIO_1: 'informa_voice_audio1',
@@ -12,6 +13,47 @@ const STORAGE_KEYS = {
 };
 
 let audioContext: AudioContext | null = null;
+let silentAudioUnlocked = false;
+
+/**
+ * In-memory custom audio cache synced from server
+ */
+const memoryAudioCache: Record<string, string> = {
+  audio2: AUDIO_FILE_PATHS.audio2,
+  audio1: AUDIO_FILE_PATHS.audio1,
+  audio3: AUDIO_FILE_PATHS.audio3,
+};
+
+/**
+ * Apply server-authoritative custom audios to memory and local storage
+ */
+export function applyServerCustomAudios(audios: Record<string, string>) {
+  if (!audios) return;
+  if (audios.audio2) memoryAudioCache.audio2 = audios.audio2;
+  if (audios.audio1) memoryAudioCache.audio1 = audios.audio1;
+  if (audios.audio3) memoryAudioCache.audio3 = audios.audio3;
+}
+
+/**
+ * Synchronize custom audios from central server across all 250 phones and manager monitors
+ */
+export async function syncServerCustomAudios(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const res = await fetch(`/api/custom-audio?t=${Date.now()}`, { cache: 'no-store' }).then((r) =>
+      r.ok ? r.json() : null
+    );
+    if (res && res.success && res.audios) {
+      applyServerCustomAudios(res.audios);
+    }
+  } catch (e) {
+    console.debug('Failed to sync server custom audios, using local fallback:', e);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  syncServerCustomAudios();
+}
 
 /**
  * Unlocks the Web Audio context and SpeechSynthesis engine after user interaction (click/touch).
@@ -26,6 +68,15 @@ export function unlockAudio(): boolean {
     }
     if (audioContext && audioContext.state === 'suspended') {
       audioContext.resume();
+    }
+
+    // Pre-unlock HTML5 Audio on mobile Safari & Chrome with a 1-sample silent WAV
+    if (!silentAudioUnlocked && typeof window !== 'undefined') {
+      const silentAudio = new Audio();
+      silentAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      silentAudio.play().then(() => {
+        silentAudioUnlocked = true;
+      }).catch(() => {});
     }
 
     // Prime speech synthesis on mobile browsers
@@ -283,10 +334,19 @@ export function getCustomAudio(type: 'audio1' | 'audio2' | 'audio3'): string | n
         : type === 'audio2'
         ? STORAGE_KEYS.AUDIO_2
         : STORAGE_KEYS.AUDIO_3;
-    return localStorage.getItem(key);
-  } catch {
-    return null;
+    const local = localStorage.getItem(key);
+    if (local) return local;
+  } catch {}
+
+  if (memoryAudioCache[type]) {
+    return memoryAudioCache[type];
   }
+
+  if (type === 'audio2') return AUDIO_FILE_PATHS.audio2;
+  if (type === 'audio1') return AUDIO_FILE_PATHS.audio1;
+  if (type === 'audio3') return AUDIO_FILE_PATHS.audio3;
+
+  return null;
 }
 
 export function saveCustomAudio(type: 'audio1' | 'audio2' | 'audio3', dataUrl: string): void {
@@ -301,9 +361,17 @@ export function saveCustomAudio(type: 'audio1' | 'audio2' | 'audio3', dataUrl: s
     // Lock automatically whenever an audio is uploaded/saved
     localStorage.setItem(STORAGE_KEYS.VOICE_LOCKED, 'true');
   } catch (e) {
-    console.error('Failed to save audio file to localStorage:', e);
-    throw new Error('Ukuran file audio terlalu besar untuk disimpan. Gunakan file audio berdurasi < 15 detik.');
+    console.warn('LocalStorage save warning:', e);
   }
+
+  memoryAudioCache[type] = dataUrl;
+
+  // Sync to central server so all other devices receive this audio immediately
+  fetch('/api/custom-audio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, dataUrl }),
+  }).catch((err) => console.error('Failed to sync custom audio to server:', err));
 }
 
 export function removeCustomAudio(type: 'audio1' | 'audio2' | 'audio3'): void {
@@ -321,22 +389,62 @@ export function removeCustomAudio(type: 'audio1' | 'audio2' | 'audio3'): void {
   } catch (e) {
     console.error(e);
   }
+
+  if (type === 'audio2') memoryAudioCache.audio2 = AUDIO_FILE_PATHS.audio2;
+  if (type === 'audio1') memoryAudioCache.audio1 = AUDIO_FILE_PATHS.audio1;
+  if (type === 'audio3') memoryAudioCache.audio3 = AUDIO_FILE_PATHS.audio3;
+
+  fetch(`/api/custom-audio/${type}`, { method: 'DELETE' }).catch(() => {});
 }
 
 /**
- * Plays an audio data URL or media URL and resolves when completed.
+ * Plays an audio data URL or media URL with robust fallback to speech synthesis so all devices are guaranteed to hear it.
  */
 export function playAudioElement(audioSrc: string): Promise<void> {
   return new Promise((resolve) => {
     try {
+      unlockAudio();
       const audio = new Audio(audioSrc);
-      audio.onended = () => resolve();
-      audio.onerror = (e) => {
-        console.warn('Audio playback error:', e);
-        resolve();
+      audio.preload = 'auto';
+
+      let resolved = false;
+      const done = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
       };
-      audio.play().catch(() => resolve());
-    } catch {
+
+      // Failsafe timeout in case audio file is stuck or blocked
+      const safetyTimeout = setTimeout(done, 12000);
+
+      audio.onended = () => {
+        clearTimeout(safetyTimeout);
+        done();
+      };
+
+      const handleFallback = async (reason: unknown) => {
+        clearTimeout(safetyTimeout);
+        console.warn('Audio playback fallback triggered:', reason);
+        try {
+          if (audioSrc.includes('warning_5min') || audioSrc.includes('audio2')) {
+            await speakIndonesian('Hai guys, waktunya 5 menit lagi, siap-siap ya!', 0.96, 1.0);
+          } else if (audioSrc.includes('warning_40min') || audioSrc.includes('audio1')) {
+            await speakIndonesian('Waktu istirahat lu tuh udah habis. Ayo cepat masuk, jualan lagi!', 0.94, 1.0);
+          } else if (audioSrc.includes('warning_overdue') || audioSrc.includes('audio3')) {
+            await speakIndonesian('Waktu lu tuh udah habis! Masuk ke floor sekarang juga!', 0.96, 1.0);
+          }
+        } catch {}
+        done();
+      };
+
+      audio.onerror = (e) => handleFallback(e);
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => handleFallback(err));
+      }
+    } catch (err) {
       resolve();
     }
   });
@@ -754,12 +862,8 @@ async function executeAudio1(staffName: string): Promise<void> {
   await speakIndonesian(introPhrase, 0.94, 1.0);
   await waitMs(300);
 
-  const customAudio = getCustomAudio('audio1');
-  if (customAudio) {
-    await playAudioElement(customAudio);
-  } else {
-    await speakIndonesian('Waktu istirahat lu tuh udah habis. Ayo cepat masuk, jualan lagi!', 0.94, 1.0);
-  }
+  const audioSrc = getCustomAudio('audio1') || AUDIO_FILE_PATHS.audio1;
+  await playAudioElement(audioSrc);
 
   await waitMs(300);
   await playStationOutroChime();
@@ -789,12 +893,9 @@ async function executeAudio2(staffName: string): Promise<void> {
   await speakIndonesian(introPhrase, 0.94, 1.0);
   await waitMs(300);
 
-  const customAudio = getCustomAudio('audio2');
-  if (customAudio) {
-    await playAudioElement(customAudio);
-  } else {
-    await speakIndonesian('Waktu istirahat lu tinggal lima menit lagi. Siap-siap masuk ke floor sekarang!', 0.94, 1.0);
-  }
+  // Exact user-requested audio: "Hai guys, waktunya 5 menit lagi, siap-siap ya!"
+  const audioSrc = getCustomAudio('audio2') || AUDIO_FILE_PATHS.audio2;
+  await playAudioElement(audioSrc);
 
   await waitMs(300);
   await playStationOutroChime();
@@ -811,7 +912,7 @@ export function playAudio2Sisa5Menit(
 ): Promise<void> {
   const cleanName = formatNameForSpeech(staffName);
   const dedupeKey = `audio2_${cleanName.toLowerCase()}`;
-  const label = `${cleanName} (Peringatan 5 Menit)`;
+  const label = `${cleanName} (Peringatan 5 Menit: Hai guys...)`;
   return enqueueAnnouncement(dedupeKey, label, () => executeAudio2(staffName));
 }
 
@@ -824,12 +925,8 @@ async function executeAudio3(staffName: string): Promise<void> {
   await speakIndonesian(introPhrase, 0.94, 1.0);
   await waitMs(300);
 
-  const customAudio = getCustomAudio('audio3');
-  if (customAudio) {
-    await playAudioElement(customAudio);
-  } else {
-    await speakIndonesian('Waktu lu tuh udah habis! Masuk ke floor sekarang juga!', 0.96, 1.0);
-  }
+  const audioSrc = getCustomAudio('audio3') || AUDIO_FILE_PATHS.audio3;
+  await playAudioElement(audioSrc);
 
   await waitMs(300);
   await playStationOutroChime();

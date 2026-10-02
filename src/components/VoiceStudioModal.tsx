@@ -56,7 +56,7 @@ const AUDIO_CONFIGS: AudioConfig[] = [
     title: 'Audio 2: Peringatan Sisa 5 Menit',
     badge: 'Menit ke-35',
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
-    expectedText: 'Waktu istirahat lu tinggal lima menit lagi, siap-siap masuk ke floor sekarang!',
+    expectedText: 'Hai guys, waktunya 5 menit lagi, siap-siap ya!',
     timing: 'Diputar otomatis saat sisa waktu 5 menit lagi',
   },
   {
@@ -154,26 +154,20 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({ isOpen, onCl
   };
 
   const handleFileUpload = (type: AudioType, e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isLocked) {
-      alert('File voice sedang dikunci untuk melindungi rekaman Anda. Klik tombol "Buka Kunci" terlebih dahulu jika ingin mengganti file.');
-      e.target.value = '';
-      return;
-    }
-
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Read audio or video file as Data URL
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = reader.result as string;
       try {
         saveCustomAudio(type, dataUrl);
-        setIsLocked(true);
         checkCustomAudios();
-        alert(`File audio untuk ${type} berhasil disimpan dan otomatis DIKUNCI aman!`);
+        unlockAudio();
+        await playAudioElement(dataUrl);
       } catch (err) {
-        alert('Gagal menyimpan file: File terlalu besar. Harap gunakan potongan audio berdurasi pendek (< 15 detik).');
+        alert('Gagal menyimpan file: File terlalu besar. Harap gunakan file audio berdurasi < 15 detik.');
       }
     };
     reader.readAsDataURL(file);
@@ -437,28 +431,16 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({ isOpen, onCl
                       )}
 
                       {/* Upload File */}
-                      {isLocked ? (
-                        <button
-                          type="button"
-                          onClick={() => alert('File voice sedang dikunci aman. Buka kunci terlebih dahulu di bagian atas jika ingin mengunggah file baru.')}
-                          title="Terkunci: Buka kunci terlebih dahulu untuk mengunggah file baru"
-                          className="p-2 rounded-xl bg-slate-100 text-slate-400 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span>Terkunci</span>
-                        </button>
-                      ) : (
-                        <label className="p-2 rounded-xl bg-[#0033A0]/10 hover:bg-[#0033A0]/20 text-[#0033A0] text-xs font-semibold flex items-center gap-1 active:scale-95 transition-all cursor-pointer">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>Upload</span>
-                          <input
-                            type="file"
-                            accept="audio/*,video/mp4,video/webm"
-                            className="hidden"
-                            onChange={(e) => handleFileUpload(cfg.key, e)}
-                          />
-                        </label>
-                      )}
+                      <label className="p-2 rounded-xl bg-[#0033A0]/10 hover:bg-[#0033A0]/20 text-[#0033A0] text-xs font-semibold flex items-center gap-1 active:scale-95 transition-all cursor-pointer">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload File</span>
+                        <input
+                          type="file"
+                          accept="audio/*,video/mp4,video/webm,.m4a,.mp3,.wav,.ogg,.aac"
+                          className="hidden"
+                          onChange={(e) => handleFileUpload(cfg.key, e)}
+                        />
+                      </label>
 
                       {/* Delete Custom File */}
                       {isCustom && !isLocked && (

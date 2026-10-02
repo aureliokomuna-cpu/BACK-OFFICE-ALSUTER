@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Users, AlertTriangle, CheckCircle, Clock, Volume2, Search, 
   Filter, Download, ShieldCheck, Megaphone, Coffee, RefreshCw, Trash2, ArrowRight, Settings2,
@@ -30,6 +30,7 @@ import {
 } from '../services/soundService';
 import { AudioUnlockBanner } from './AudioUnlockBanner';
 import { VoiceStudioModal } from './VoiceStudioModal';
+import { AudioUploadModal } from './AudioUploadModal';
 import { TimeAdjustmentModal } from './TimeAdjustmentModal';
 
 interface ManagerMonitorViewProps {
@@ -52,6 +53,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   const [nowTime, setNowTime] = useState<number>(() => getSynchronizedNow());
   const [syncSeconds, setSyncSeconds] = useState<number>(10);
   const [isStudioOpen, setIsStudioOpen] = useState<boolean>(false);
+  const [isAudioUploadOpen, setIsAudioUploadOpen] = useState<boolean>(false);
   const [editingSession, setEditingSession] = useState<BreakSession | null>(null);
   const [autoAnnounce, setAutoAnnounce] = useState<boolean>(true);
   const [pendingEndSession, setPendingEndSession] = useState<{ nip: string; name: string } | null>(null);
@@ -61,6 +63,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     queueLength: 0,
     currentTitle: null,
   });
+  const localAnnouncedAlertsRef = useRef<Set<string>>(new Set());
 
   // Multi-device central real-time subscription
   useEffect(() => {
@@ -101,7 +104,9 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
             const elapsedSec = Math.floor((now - s.startTime) / 1000);
 
             // 1. Audio 2: Peringatan sisa 5 menit (menit ke-35 s.d < 40)
-            if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !s.warningPlayed) {
+            const warn5mKey = `mgr_warn5m_${s.id}`;
+            if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !localAnnouncedAlertsRef.current.has(warn5mKey)) {
+              localAnnouncedAlertsRef.current.add(warn5mKey);
               s.warningPlayed = true;
               markWarningPlayed(s.id);
               unlockAudio();
@@ -109,7 +114,9 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
             }
 
             // 2. Audio 1: Tepat habis 40 menit (menit ke-40 s.d < 41)
-            if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !s.alarmPlayed) {
+            const warn40mKey = `mgr_warn40m_${s.id}`;
+            if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !localAnnouncedAlertsRef.current.has(warn40mKey)) {
+              localAnnouncedAlertsRef.current.add(warn40mKey);
               s.alarmPlayed = true;
               markAlarmPlayed(s.id);
               unlockAudio();
@@ -117,7 +124,9 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
             }
 
             // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas)
-            if (elapsedSec >= 41 * 60 && !s.overduePlayed) {
+            const warnOverdueKey = `mgr_overdue_${s.id}`;
+            if (elapsedSec >= 41 * 60 && !localAnnouncedAlertsRef.current.has(warnOverdueKey)) {
+              localAnnouncedAlertsRef.current.add(warnOverdueKey);
               s.overduePlayed = true;
               markOverduePlayed(s.id);
               unlockAudio();
@@ -444,6 +453,15 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
               <span className="hidden sm:inline">Kosongkan Sesi</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => setIsAudioUploadOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#FFD100] hover:bg-yellow-400 text-blue-950 text-xs font-black shadow-xs active:scale-95 transition-all cursor-pointer"
+          >
+            <Volume2 className="w-4 h-4 text-blue-950" />
+            <span>Upload Suara 5 Menit</span>
+          </button>
 
           <button
             type="button"
@@ -1104,6 +1122,13 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
       )}
       {/* Voice Studio Modal */}
       <VoiceStudioModal isOpen={isStudioOpen} onClose={() => setIsStudioOpen(false)} />
+
+      {/* Quick Audio Upload Modal */}
+      <AudioUploadModal
+        isOpen={isAudioUploadOpen}
+        onClose={() => setIsAudioUploadOpen(false)}
+        targetType="audio2"
+      />
 
       {/* Time Adjustment & Automation Test Modal */}
       <TimeAdjustmentModal

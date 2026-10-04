@@ -663,58 +663,105 @@ async function startServer() {
     const { nip, sessionId, endTime } = req.body;
     const cleanNip = nip ? String(nip).trim() : '';
 
-    const idx = serverState.sessions.findIndex((s) => {
-      if (sessionId && s.id === sessionId) return true;
-      if (cleanNip) {
-        const matchesNip =
-          s.nip === cleanNip ||
-          (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10));
-        return matchesNip && s.endTime === null;
+    let matchedCount = 0;
+    const serverMasterNow = Date.now();
+    const finishTime =
+      typeof endTime === 'number' && Math.abs(serverMasterNow - endTime) < 10000
+        ? endTime
+        : serverMasterNow;
+
+    let primarySession: BreakSession | null = null;
+
+    serverState.sessions = serverState.sessions.map((s) => {
+      const matchId = sessionId && s.id === sessionId;
+      const matchNip =
+        cleanNip &&
+        (s.nip === cleanNip ||
+          (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10)));
+
+      if ((matchId || matchNip) && s.endTime === null) {
+        matchedCount++;
+        const durationMs = finishTime - s.startTime;
+        const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
+        const updated = {
+          ...s,
+          endTime: finishTime,
+          durationMinutes,
+        };
+        if (!primarySession) primarySession = updated;
+        return updated;
       }
-      return false;
+      return s;
     });
 
-    if (idx === -1) {
+    if (matchedCount === 0) {
+      // If already ended previously, return existing completed session
+      const existing = serverState.sessions.find(
+        (s) =>
+          (sessionId && s.id === sessionId) ||
+          (cleanNip &&
+            (s.nip === cleanNip ||
+              (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10))))
+      );
+      if (existing && existing.endTime !== null) {
+        return res.json({
+          success: true,
+          message: `Istirahat selesai! Durasi sesi: ${existing.durationMinutes} menit.`,
+          session: existing,
+          durationMinutes: existing.durationMinutes,
+          serverTime: Date.now(),
+        });
+      }
       return res.status(404).json({
         success: false,
         message: 'Tidak ditemukan sesi istirahat aktif untuk diselesaikan.',
       });
     }
 
-    const session = serverState.sessions[idx];
+    saveState(serverState);
 
-    // If already ended, return existing completed session
-    if (session.endTime !== null) {
-      return res.json({
-        success: true,
-        message: `Istirahat selesai! Durasi sesi: ${session.durationMinutes} menit.`,
-        session,
-        durationMinutes: session.durationMinutes,
-        serverTime: Date.now(),
-      });
+    // Instant broadcast STAFF_ENDED_BREAK event to all connected devices via SSE and MQTT
+    const endEvent = JSON.stringify({
+      type: 'STAFF_ENDED_BREAK',
+      nip: cleanNip || primarySession?.nip,
+      employeeName: primarySession?.employeeName || '',
+      sessionId: primarySession?.id || sessionId || '',
+      sessions: serverState.sessions,
+      lastUpdated: serverState.lastUpdated,
+      serverTime: Date.now(),
+      lastResetTime: serverState.lastResetTime || 0,
+    });
+    for (const client of sseClients) {
+      try {
+        client.write(`data: ${endEvent}\n\n`);
+      } catch {
+        sseClients.delete(client);
+      }
     }
 
-    const serverMasterNow = Date.now();
-    const finishTime =
-      typeof endTime === 'number' && Math.abs(serverMasterNow - endTime) < 4000
-        ? endTime
-        : serverMasterNow;
-
-    const durationMs = finishTime - session.startTime;
-    const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
-
-    serverState.sessions[idx] = {
-      ...session,
-      endTime: finishTime,
-      durationMinutes,
-    };
-    saveState(serverState);
+    if (serverMqttClient && serverMqttClient.connected) {
+      try {
+        serverMqttClient.publish(
+          SYNC_TOPIC,
+          JSON.stringify({
+            type: 'STAFF_ENDED_BREAK',
+            nip: cleanNip || primarySession?.nip,
+            employeeName: primarySession?.employeeName || '',
+            sessionId: primarySession?.id || sessionId || '',
+            sessions: serverState.sessions,
+            updatedAt: serverState.lastUpdated,
+            senderId: 'server_backend',
+          }),
+          { retain: false, qos: 1 }
+        );
+      } catch {}
+    }
 
     res.json({
       success: true,
-      message: `Istirahat selesai! Durasi sesi: ${durationMinutes} menit.`,
-      session: serverState.sessions[idx],
-      durationMinutes,
+      message: `Istirahat selesai!`,
+      session: primarySession,
+      durationMinutes: primarySession?.durationMinutes,
       serverTime: Date.now(),
     });
   });

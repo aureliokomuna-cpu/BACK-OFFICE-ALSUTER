@@ -3,7 +3,11 @@
 import { Employee, BreakSession, DailyStaffSummary } from '../types';
 import { DEFAULT_EMPLOYEES, cleanEmployeeName } from '../data/defaultEmployees';
 import { cloudSync } from './cloudSyncService';
-import { applyServerCustomAudios } from './soundService';
+import {
+  applyServerCustomAudios,
+  registerActiveSessionChecker,
+  cancelAnnouncementsForStaff,
+} from './soundService';
 
 const STORAGE_KEYS = {
   EMPLOYEES: 'informa_employees_v1',
@@ -316,6 +320,38 @@ function loadInitialCache() {
 
 loadInitialCache();
 
+// Register session checker so sound queue NEVER calls staff who already checked out!
+registerActiveSessionChecker((nip, sessionId, name) => {
+  const all = getAllSessions();
+  if (sessionId && sessionId.startsWith('brk_')) {
+    const s = all.find((x) => x.id === sessionId);
+    if (s) {
+      return s.endTime === null;
+    }
+  }
+  if (nip && !isNaN(Number(nip))) {
+    const cleanNip = String(nip).trim();
+    const active = all.find(
+      (x) =>
+        (x.nip === cleanNip ||
+          (!isNaN(parseInt(cleanNip, 10)) && parseInt(x.nip, 10) === parseInt(cleanNip, 10))) &&
+        x.endTime === null
+    );
+    return Boolean(active);
+  }
+  if (name) {
+    const cleanName = name.toLowerCase().trim();
+    const active = all.find(
+      (x) =>
+        (x.employeeName.toLowerCase().includes(cleanName) ||
+          cleanName.includes(x.employeeName.toLowerCase())) &&
+        x.endTime === null
+    );
+    return Boolean(active);
+  }
+  return false;
+});
+
 export function reconcileSessionCollection(
   incomingSessions: BreakSession[],
   incomingResetTime: number = 0,
@@ -335,42 +371,65 @@ export function reconcileSessionCollection(
 
   if (isAuthoritativeServer) {
     // 1. Authoritative Server source:
-    // Add all valid server sessions first
-    for (const remote of incomingSessions) {
-      if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
-      // Auto-close abandoned breaks > 16 hours
-      if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
-        sessionMap.set(remote.id, {
-          ...remote,
-          endTime: remote.startTime + 40 * 60 * 1000,
-          durationMinutes: 40,
-        });
-      } else {
-        sessionMap.set(remote.id, remote);
+    if (incomingSessions.length <= 2 && memorySessions.length > incomingSessions.length) {
+      // Partial single-session response from start/end endpoint: update target and keep others
+      for (const s of memorySessions) {
+        sessionMap.set(s.id, s);
       }
-    }
-
-    // 2. Check local memory sessions:
-    // Only preserve local sessions if:
-    // a) It is on the server: check if local has ended recently (in flight end request)
-    // b) It is NOT on server: only keep if it was started in the last 20 seconds (in flight start request)
-    for (const local of memorySessions) {
-      if (localLastResetTime > 0 && local.startTime < localLastResetTime) continue;
-
-      const serverVersion = sessionMap.get(local.id);
-      if (serverVersion) {
-        // If local ended in last 30s but server hasn't registered end yet:
-        if (local.endTime !== null && serverVersion.endTime === null && now - (local.endTime || 0) < 30000) {
-          sessionMap.set(local.id, {
-            ...serverVersion,
-            endTime: local.endTime,
-            durationMinutes: local.durationMinutes,
+      for (const remote of incomingSessions) {
+        const local = sessionMap.get(remote.id);
+        if (local) {
+          sessionMap.set(remote.id, {
+            ...local,
+            ...remote,
+            warningPlayed: local.warningPlayed || remote.warningPlayed,
+            alarmPlayed: local.alarmPlayed || remote.alarmPlayed,
+            overduePlayed: local.overduePlayed || remote.overduePlayed,
           });
+        } else {
+          sessionMap.set(remote.id, remote);
         }
-      } else {
-        // Local-only session: only keep if started recently (< 20 seconds) and still waiting for server
-        if (local.endTime === null && now - local.startTime < 20000) {
-          sessionMap.set(local.id, local);
+      }
+    } else {
+      // Full authoritative server snapshot
+      for (const remote of incomingSessions) {
+        if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
+        // Auto-close abandoned breaks > 16 hours
+        if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
+          sessionMap.set(remote.id, {
+            ...remote,
+            endTime: remote.startTime + 40 * 60 * 1000,
+            durationMinutes: 40,
+          });
+        } else {
+          sessionMap.set(remote.id, remote);
+        }
+      }
+
+      // Check local memory sessions
+      for (const local of memorySessions) {
+        if (localLastResetTime > 0 && local.startTime < localLastResetTime) continue;
+
+        const serverVersion = sessionMap.get(local.id);
+        if (serverVersion) {
+          // If local ended but server hasn't registered end yet: finished always wins
+          if (local.endTime !== null && serverVersion.endTime === null) {
+            sessionMap.set(local.id, {
+              ...serverVersion,
+              endTime: local.endTime,
+              durationMinutes: local.durationMinutes,
+            });
+          }
+          // Preserve played flags if marked locally
+          const cur = sessionMap.get(local.id)!;
+          cur.warningPlayed = cur.warningPlayed || local.warningPlayed;
+          cur.alarmPlayed = cur.alarmPlayed || local.alarmPlayed;
+          cur.overduePlayed = cur.overduePlayed || local.overduePlayed;
+        } else {
+          // Local-only session: only keep if started recently (< 20 seconds) and still waiting for server
+          if (local.endTime === null && now - local.startTime < 20000) {
+            sessionMap.set(local.id, local);
+          }
         }
       }
     }
@@ -428,6 +487,18 @@ export function reconcileSessionCollection(
     }
   }
 
+  // AUTOMATIC CHECKOUT DETECTION:
+  // If any session was previously active (endTime === null) and has now ended (endTime !== null),
+  // immediately cancel its announcements on this device!
+  for (const prev of memorySessions) {
+    if (prev.endTime === null) {
+      const updated = sessionMap.get(prev.id);
+      if (updated && updated.endTime !== null) {
+        cancelAnnouncementsForStaff(prev.nip, prev.employeeName, prev.id);
+      }
+    }
+  }
+
   const merged = Array.from(sessionMap.values()).sort((a, b) => {
     if (b.startTime !== a.startTime) return b.startTime - a.startTime;
     return b.id.localeCompare(a.id);
@@ -451,7 +522,10 @@ export function reconcileWithCloudSessions(cloudSessions: BreakSession[], resetT
 }
 
 // Connect CloudSync listener immediately
-cloudSync.onSync((cloudSessions, cloudEmployees, cloudResetTime) => {
+cloudSync.onSync((cloudSessions, cloudEmployees, cloudResetTime, payload) => {
+  if (payload && payload.type === 'STAFF_ENDED_BREAK') {
+    cancelAnnouncementsForStaff(payload.nip, payload.employeeName, payload.sessionId);
+  }
   if (Array.isArray(cloudSessions)) {
     reconcileSessionCollection(cloudSessions, cloudResetTime || 0, false);
   }
@@ -553,7 +627,11 @@ export function initRealtimeSync(): void {
 
   // Listen to same-device BroadcastChannel
   if (syncChannel) {
-    syncChannel.onmessage = () => {
+    syncChannel.onmessage = (event) => {
+      const msg = event.data;
+      if (msg && msg.type === 'STAFF_ENDED_BREAK') {
+        cancelAnnouncementsForStaff(msg.nip, msg.employeeName, msg.sessionId);
+      }
       fetchServerState(true);
     };
   }
@@ -571,6 +649,13 @@ export function initRealtimeSync(): void {
           const data = JSON.parse(event.data);
           if (data && data.type === 'CUSTOM_AUDIO_UPDATED' && data.audios) {
             applyServerCustomAudios(data.audios);
+            return;
+          }
+          if (data && data.type === 'STAFF_ENDED_BREAK') {
+            cancelAnnouncementsForStaff(data.nip, data.employeeName, data.sessionId);
+            if (Array.isArray(data.sessions)) {
+              reconcileSessionCollection(data.sessions, data.lastResetTime || 0, true);
+            }
             return;
           }
           if (data && Array.isArray(data.sessions)) {
@@ -907,15 +992,20 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
 // End Break (Optimistic + Backend Central Server Sync)
 export function endStaffBreak(nip: string): { success: boolean; message: string; durationMinutes?: number } {
   const all = getAllSessions();
-  // Find any active session for this employee regardless of date mismatch
   const cleanNip = String(nip).trim();
-  const sessionIndex = all.findIndex(
-    (s) =>
-      (s.nip === cleanNip || (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10))) &&
-      s.endTime === null
-  );
 
-  if (sessionIndex === -1) {
+  // Find all active sessions for this employee
+  const matchingIndices: number[] = [];
+  all.forEach((s, idx) => {
+    const matchesNip =
+      s.nip === cleanNip ||
+      (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10));
+    if (matchesNip && s.endTime === null) {
+      matchingIndices.push(idx);
+    }
+  });
+
+  if (matchingIndices.length === 0) {
     return {
       success: false,
       message: 'Tidak ditemukan sesi istirahat aktif untuk diselesaikan.',
@@ -923,28 +1013,49 @@ export function endStaffBreak(nip: string): { success: boolean; message: string;
   }
 
   const now = getSynchronizedNow();
-  const session = all[sessionIndex];
-  const durationMs = now - session.startTime;
-  const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
+  let firstDuration = 0;
+  let employeeName = '';
+  let sessionId = '';
 
-  all[sessionIndex] = {
-    ...session,
-    endTime: now,
-    durationMinutes,
-  };
+  matchingIndices.forEach((idx) => {
+    const session = all[idx];
+    employeeName = session.employeeName;
+    sessionId = session.id;
+    const durationMs = now - session.startTime;
+    const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
+    if (!firstDuration) firstDuration = durationMinutes;
+
+    all[idx] = {
+      ...session,
+      endTime: now,
+      durationMinutes,
+    };
+  });
 
   saveSessions(all);
 
-  // Sync with central server
+  // 1. CANCEL ANY PENDING ANNOUNCEMENTS FOR THIS EMPLOYEE IMMEDIATELY!
+  cancelAnnouncementsForStaff(cleanNip, employeeName, sessionId);
+
+  // 2. Broadcast on syncChannel to immediately cancel on other open tabs
+  syncChannel?.postMessage({
+    type: 'STAFF_ENDED_BREAK',
+    nip: cleanNip,
+    employeeName,
+    sessionId,
+    timestamp: now,
+  });
+
+  // 3. Sync with central server
   fetch('/api/sessions/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nip: cleanNip, sessionId: session.id, endTime: now }),
+    body: JSON.stringify({ nip: cleanNip, sessionId, endTime: now }),
   })
     .then((r) => r.json())
     .then((data) => {
       if (data && data.session) {
-        reconcileSessionCollection([data.session], 0, true);
+        reconcileSessionCollection([data.session], 0, false);
       }
       fetchServerState(true);
     })
@@ -952,8 +1063,8 @@ export function endStaffBreak(nip: string): { success: boolean; message: string;
 
   return {
     success: true,
-    message: `Istirahat selesai! Durasi sesi ini: ${durationMinutes} menit. Selamat kembali beraktivitas di floor!`,
-    durationMinutes,
+    message: `Istirahat selesai! Durasi sesi ini: ${firstDuration} menit. Selamat kembali beraktivitas di floor!`,
+    durationMinutes: firstDuration,
   };
 }
 

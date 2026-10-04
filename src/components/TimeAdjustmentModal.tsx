@@ -98,11 +98,11 @@ export function TimeAdjustmentModal({
   const handleTestAudio = (audioType: 1 | 2 | 3) => {
     unlockAudio();
     if (audioType === 2) {
-      playAudio2Sisa5Menit(session.employeeName, session.jobTitle, session.department);
+      playAudio2Sisa5Menit(session.employeeName, session.nip, session.id, session.jobTitle, session.department);
     } else if (audioType === 1) {
-      playAudio1Sudah40Menit(session.employeeName, session.jobTitle, session.department);
+      playAudio1Sudah40Menit(session.employeeName, session.nip, session.id, session.jobTitle, session.department);
     } else {
-      playAudio3UdahLewat40Menit(session.employeeName, session.jobTitle, session.department);
+      playAudio3UdahLewat40Menit(session.employeeName, session.nip, session.id, session.jobTitle, session.department);
     }
     setFeedbackMessage(`Memutar Audio ${audioType} untuk ${session.employeeName}...`);
     setTimeout(() => setFeedbackMessage(null), 3500);

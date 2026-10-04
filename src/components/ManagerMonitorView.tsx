@@ -26,7 +26,8 @@ import {
   announceCustomCall,
   subscribeAudioQueue,
   AudioQueueStatus,
-  unlockAudio
+  unlockAudio,
+  cancelAnnouncementsForStaff,
 } from '../services/soundService';
 import { AudioUnlockBanner } from './AudioUnlockBanner';
 import { VoiceStudioModal } from './VoiceStudioModal';
@@ -56,7 +57,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   const [isAudioUploadOpen, setIsAudioUploadOpen] = useState<boolean>(false);
   const [editingSession, setEditingSession] = useState<BreakSession | null>(null);
   const [autoAnnounce, setAutoAnnounce] = useState<boolean>(true);
-  const [pendingEndSession, setPendingEndSession] = useState<{ nip: string; name: string } | null>(null);
+  const [pendingEndSession, setPendingEndSession] = useState<{ nip: string; name: string; sessionId?: string } | null>(null);
   const [showClearModal, setShowClearModal] = useState<boolean>(false);
   const [queueStatus, setQueueStatus] = useState<AudioQueueStatus>({
     isProcessing: false,
@@ -105,32 +106,32 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
             // 1. Audio 2: Peringatan sisa 5 menit (menit ke-35 s.d < 40)
             const warn5mKey = `mgr_warn5m_${s.id}`;
-            if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !localAnnouncedAlertsRef.current.has(warn5mKey)) {
+            if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !s.warningPlayed && !localAnnouncedAlertsRef.current.has(warn5mKey)) {
               localAnnouncedAlertsRef.current.add(warn5mKey);
               s.warningPlayed = true;
               markWarningPlayed(s.id);
               unlockAudio();
-              playAudio2Sisa5Menit(s.employeeName, s.jobTitle, s.department);
+              playAudio2Sisa5Menit(s.employeeName, s.nip, s.id, s.jobTitle, s.department);
             }
 
             // 2. Audio 1: Tepat habis 40 menit (menit ke-40 s.d < 41)
             const warn40mKey = `mgr_warn40m_${s.id}`;
-            if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !localAnnouncedAlertsRef.current.has(warn40mKey)) {
+            if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !s.alarmPlayed && !localAnnouncedAlertsRef.current.has(warn40mKey)) {
               localAnnouncedAlertsRef.current.add(warn40mKey);
               s.alarmPlayed = true;
               markAlarmPlayed(s.id);
               unlockAudio();
-              playAudio1Sudah40Menit(s.employeeName, s.jobTitle, s.department);
+              playAudio1Sudah40Menit(s.employeeName, s.nip, s.id, s.jobTitle, s.department);
             }
 
             // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas)
             const warnOverdueKey = `mgr_overdue_${s.id}`;
-            if (elapsedSec >= 41 * 60 && !localAnnouncedAlertsRef.current.has(warnOverdueKey)) {
+            if (elapsedSec >= 41 * 60 && !s.overduePlayed && !localAnnouncedAlertsRef.current.has(warnOverdueKey)) {
               localAnnouncedAlertsRef.current.add(warnOverdueKey);
               s.overduePlayed = true;
               markOverduePlayed(s.id);
               unlockAudio();
-              playAudio3UdahLewat40Menit(s.employeeName, s.jobTitle, s.department);
+              playAudio3UdahLewat40Menit(s.employeeName, s.nip, s.id, s.jobTitle, s.department);
             }
           }
         });
@@ -202,9 +203,9 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   // Floor congestion warning threshold (e.g. >= 5 staff on break)
   const isFloorRisk = breakCount >= 5;
 
-  const handleSpeakerCall = async (staffName: string, nip: string, department?: string, jobTitle?: string) => {
+  const handleSpeakerCall = async (staffName: string, nip: string, department?: string, jobTitle?: string, sessionId?: string) => {
     setCallingNip(nip);
-    await playAudio1Sudah40Menit(staffName, jobTitle, department);
+    await playAudio1Sudah40Menit(staffName, nip, sessionId, jobTitle, department);
     setCallingNip(null);
   };
 
@@ -212,16 +213,17 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     type: 'audio1' | 'audio2' | 'audio3',
     staffName: string,
     nip: string,
+    sessionId?: string,
     jobTitle?: string,
     department?: string
   ) => {
     setCallingNip(`${nip}_${type}`);
     if (type === 'audio1') {
-      await playAudio1Sudah40Menit(staffName, jobTitle, department);
+      await playAudio1Sudah40Menit(staffName, nip, sessionId, jobTitle, department);
     } else if (type === 'audio2') {
-      await playAudio2Sisa5Menit(staffName, jobTitle, department);
+      await playAudio2Sisa5Menit(staffName, nip, sessionId, jobTitle, department);
     } else {
-      await playAudio3UdahLewat40Menit(staffName, jobTitle, department);
+      await playAudio3UdahLewat40Menit(staffName, nip, sessionId, jobTitle, department);
     }
     setCallingNip(null);
   };
@@ -242,13 +244,14 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     }
   };
 
-  const handleForceEndBreak = (nip: string, staffName: string) => {
-    setPendingEndSession({ nip, name: staffName });
+  const handleForceEndBreak = (nip: string, staffName: string, sessionId?: string) => {
+    setPendingEndSession({ nip, name: staffName, sessionId: sessionId || '' });
   };
 
   const confirmForceEndBreak = () => {
     if (!pendingEndSession) return;
     endStaffBreak(pendingEndSession.nip);
+    cancelAnnouncementsForStaff(pendingEndSession.nip, pendingEndSession.name, pendingEndSession.sessionId);
     setSessions(getTodaySessions());
     setPendingEndSession(null);
     onRefreshNeeded();
@@ -281,6 +284,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
   const handleToggleMyBreak = () => {
     if (myActiveBreak) {
       const res = endStaffBreak(currentUser.nip);
+      cancelAnnouncementsForStaff(currentUser.nip, currentUser.name, myActiveBreak.id);
       if (res.success) {
         setSessions(getTodaySessions());
         onRefreshNeeded();
@@ -946,7 +950,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                       <div className="grid grid-cols-3 gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleVoiceCall('audio2', s.employeeName, s.nip, s.jobTitle, s.department)}
+                          onClick={() => handleVoiceCall('audio2', s.employeeName, s.nip, s.id, s.jobTitle, s.department)}
                           disabled={callingNip !== null}
                           title="Audio 2: Sisa 5 Menit"
                           className="py-1.5 px-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 text-[10px] font-bold text-center active:scale-95 transition-all cursor-pointer"
@@ -956,7 +960,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => handleVoiceCall('audio1', s.employeeName, s.nip, s.jobTitle, s.department)}
+                          onClick={() => handleVoiceCall('audio1', s.employeeName, s.nip, s.id, s.jobTitle, s.department)}
                           disabled={callingNip !== null}
                           title="Audio 1: Waktu Habis (40 Mnt) - Cepat Jualan Lagi!"
                           className="py-1.5 px-1 rounded-lg bg-[#0033A0] hover:bg-[#00257A] text-white text-[10px] font-bold text-center active:scale-95 transition-all cursor-pointer shadow-xs"
@@ -966,7 +970,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => handleVoiceCall('audio3', s.employeeName, s.nip, s.jobTitle, s.department)}
+                          onClick={() => handleVoiceCall('audio3', s.employeeName, s.nip, s.id, s.jobTitle, s.department)}
                           disabled={callingNip !== null}
                           title="Audio 3: Lewat 40 Mnt (Masuk ke Floor Sekarang!)"
                           className="py-1.5 px-1 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-[10px] font-bold text-center active:scale-95 transition-all cursor-pointer"
@@ -980,11 +984,11 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                         type="button"
                         onClick={() => {
                           if (elapsedMinutes >= 40) {
-                            handleVoiceCall('audio3', s.employeeName, s.nip, s.jobTitle, s.department);
+                            handleVoiceCall('audio3', s.employeeName, s.nip, s.id, s.jobTitle, s.department);
                           } else if (elapsedMinutes >= 35) {
-                            handleVoiceCall('audio1', s.employeeName, s.nip, s.jobTitle, s.department);
+                            handleVoiceCall('audio1', s.employeeName, s.nip, s.id, s.jobTitle, s.department);
                           } else {
-                            handleVoiceCall('audio2', s.employeeName, s.nip, s.jobTitle, s.department);
+                            handleVoiceCall('audio2', s.employeeName, s.nip, s.id, s.jobTitle, s.department);
                           }
                         }}
                         disabled={callingNip !== null}
@@ -1022,12 +1026,15 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                         <span>⚡ Edit Waktu &amp; Uji Alarm (Simulasi)</span>
                       </button>
 
+                      {/* Tombol Checkout / Selesai Istirahat */}
                       <button
                         type="button"
-                        onClick={() => handleForceEndBreak(s.nip, s.employeeName)}
-                        className="w-full py-1 text-[11px] text-slate-400 hover:text-red-700 font-medium transition-colors cursor-pointer"
+                        onClick={() => handleForceEndBreak(s.nip, s.employeeName, s.id)}
+                        className="w-full py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs cursor-pointer"
+                        title="Checkout staf ini agar selesai istirahat dan kembali bertugas"
                       >
-                        Tandai Selesai Kembali ke Floor
+                        <CheckCircle className="w-4 h-4 text-emerald-200" />
+                        <span>Checkout (Selesai Istirahat)</span>
                       </button>
                     </div>
                   </div>

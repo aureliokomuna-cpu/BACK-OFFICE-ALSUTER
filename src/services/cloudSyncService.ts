@@ -5,16 +5,24 @@ import type { BreakSession, Employee } from '../types';
 export const SYNC_TOPIC = 'informa/alamsutera/v1/sessions_state';
 
 interface SyncPayload {
-  type: 'SYNC_STATE';
+  type: 'SYNC_STATE' | 'STAFF_ENDED_BREAK' | string;
   sessions: BreakSession[];
   employees?: Employee[];
   updatedAt: number;
   lastResetTime?: number;
-  senderId: string;
+  senderId?: string;
+  nip?: string;
+  employeeName?: string;
+  sessionId?: string;
 }
 
 type SyncStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
-type SyncListener = (sessions: BreakSession[], employees?: Employee[], lastResetTime?: number) => void;
+type SyncListener = (
+  sessions: BreakSession[],
+  employees?: Employee[],
+  lastResetTime?: number,
+  payload?: SyncPayload
+) => void;
 type StatusListener = (status: SyncStatus) => void;
 
 class CloudSyncService {
@@ -102,7 +110,7 @@ class CloudSyncService {
 
           this.syncListeners.forEach((listener) => {
             try {
-              listener(payload.sessions, payload.employees, payload.lastResetTime);
+              listener(payload.sessions, payload.employees, payload.lastResetTime, payload);
             } catch (e) {
               console.error('[CloudSync] Listener error:', e);
             }

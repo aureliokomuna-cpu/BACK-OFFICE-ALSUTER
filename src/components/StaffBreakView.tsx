@@ -88,7 +88,13 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
           current.activeSession.warningPlayed = true;
           markWarningPlayed(current.activeSession.id);
           unlockAudio();
-          playAudio2Sisa5Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
+          playAudio2Sisa5Menit(
+            currentUser.name,
+            currentUser.nip,
+            current.activeSession.id,
+            currentUser.jobTitle,
+            currentUser.department
+          );
           onSessionChanged();
         }
 
@@ -99,7 +105,13 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
           current.activeSession.alarmPlayed = true;
           markAlarmPlayed(current.activeSession.id);
           unlockAudio();
-          playAudio1Sudah40Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
+          playAudio1Sudah40Menit(
+            currentUser.name,
+            currentUser.nip,
+            current.activeSession.id,
+            currentUser.jobTitle,
+            currentUser.department
+          );
           onSessionChanged();
         }
 
@@ -110,7 +122,13 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
           current.activeSession.overduePlayed = true;
           markOverduePlayed(current.activeSession.id);
           unlockAudio();
-          playAudio3UdahLewat40Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
+          playAudio3UdahLewat40Menit(
+            currentUser.name,
+            currentUser.nip,
+            current.activeSession.id,
+            currentUser.jobTitle,
+            currentUser.department
+          );
           onSessionChanged();
         }
       } else {
@@ -454,7 +472,13 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
                   type="button"
                   onClick={async () => {
                     unlockAudio();
-                    await playAudio2Sisa5Menit(currentUser.name, currentUser.jobTitle, currentUser.department);
+                    await playAudio2Sisa5Menit(
+                      currentUser.name,
+                      currentUser.nip,
+                      summary?.activeSession?.id,
+                      currentUser.jobTitle,
+                      currentUser.department
+                    );
                   }}
                   className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs shrink-0 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
                   title="Cek bunyi suara peringatan 5 menit"

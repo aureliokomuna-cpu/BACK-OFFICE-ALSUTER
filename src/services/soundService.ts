@@ -727,6 +727,16 @@ export function formatTeamCall(
   };
 }
 
+export function formatMultipleNamesForSpeech(names: string[]): string {
+  const cleaned = names.map((n) => formatNameForSpeech(n)).filter(Boolean);
+  if (cleaned.length === 0) return '';
+  if (cleaned.length === 1) return cleaned[0];
+  if (cleaned.length === 2) return `${cleaned[0]} dan ${cleaned[1]}`;
+  const allExceptLast = cleaned.slice(0, -1).join(', ');
+  const last = cleaned[cleaned.length - 1];
+  return `${allExceptLast}, dan ${last}`;
+}
+
 // ---------------- Sequential Audio Announcement Queue ---------------- //
 
 export interface AudioQueueStatus {
@@ -735,10 +745,20 @@ export interface AudioQueueStatus {
   currentTitle: string | null;
 }
 
+export interface StaffAnnouncementTarget {
+  name: string;
+  nip?: string;
+  sessionId?: string;
+  jobTitle?: string;
+  department?: string;
+}
+
 interface QueuedItem {
   id: string;
+  category?: 'audio1' | 'audio2' | 'audio3';
   dedupeKey: string;
   label: string;
+  targets: StaffAnnouncementTarget[];
   nip?: string;
   sessionId?: string;
   employeeName?: string;
@@ -763,6 +783,23 @@ export function registerActiveSessionChecker(checker: ActiveSessionChecker) {
   activeSessionChecker = checker;
 }
 
+function abortActivePlaying() {
+  console.log(`[AudioQueue] Aborting actively playing announcement for "${currentActiveItem?.label}".`);
+  isCurrentItemCancelled = true;
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
+  }
+  if (activePlayingAudio) {
+    try {
+      activePlayingAudio.pause();
+      activePlayingAudio.currentTime = 0;
+    } catch {}
+    activePlayingAudio = null;
+  }
+}
+
 /**
  * Instantly cancels any pending announcements for an employee who has checked out,
  * and halts any speech or sound currently in progress.
@@ -771,49 +808,74 @@ export function cancelAnnouncementsForStaff(nip?: string, staffName?: string, se
   const cleanNip = nip ? String(nip).trim() : '';
   const cleanName = staffName ? staffName.toLowerCase().trim() : '';
 
+  const matchesTarget = (t: StaffAnnouncementTarget) => {
+    const matchId = sessionId && t.sessionId === sessionId;
+    const matchNip =
+      cleanNip &&
+      t.nip &&
+      (t.nip === cleanNip ||
+        (!isNaN(parseInt(cleanNip, 10)) && parseInt(t.nip, 10) === parseInt(cleanNip, 10)));
+    const matchName =
+      cleanName &&
+      t.name &&
+      (t.name.toLowerCase().includes(cleanName) || cleanName.includes(t.name.toLowerCase()));
+    return Boolean(matchId || matchNip || matchName);
+  };
+
   // 1. Remove all matching items from the queue
   for (let i = audioQueue.length - 1; i >= 0; i--) {
     const item = audioQueue[i];
-    const matchId = sessionId && item.sessionId === sessionId;
-    const matchNip =
-      cleanNip &&
-      item.nip &&
-      (item.nip === cleanNip ||
-        (!isNaN(parseInt(cleanNip, 10)) && parseInt(item.nip, 10) === parseInt(cleanNip, 10)));
-    const matchName = cleanName && item.employeeName && item.employeeName.toLowerCase().includes(cleanName);
+    if (item.targets && item.targets.length > 0) {
+      item.targets = item.targets.filter((t) => !matchesTarget(t));
+      if (item.targets.length === 0) {
+        console.log(`[AudioQueue] Cancelled announcement "${item.label}" because all staff checked out.`);
+        item.resolve();
+        audioQueue.splice(i, 1);
+      } else {
+        const remainingNames = item.targets.map((x) => formatNameForSpeech(x.name));
+        item.label = `${remainingNames.join(', ')} (Update)`;
+      }
+    } else {
+      const matchId = sessionId && item.sessionId === sessionId;
+      const matchNip =
+        cleanNip &&
+        item.nip &&
+        (item.nip === cleanNip ||
+          (!isNaN(parseInt(cleanNip, 10)) && parseInt(item.nip, 10) === parseInt(cleanNip, 10)));
+      const matchName =
+        cleanName &&
+        ((item.employeeName && item.employeeName.toLowerCase().includes(cleanName)) ||
+          (item.label && item.label.toLowerCase().includes(cleanName)));
 
-    if (matchId || matchNip || matchName) {
-      console.log(`[AudioQueue] Cancelled pending announcement for "${item.label}" because staff checked out.`);
-      item.resolve();
-      audioQueue.splice(i, 1);
+      if (matchId || matchNip || matchName) {
+        console.log(`[AudioQueue] Cancelled pending announcement for "${item.label}" because staff checked out.`);
+        item.resolve();
+        audioQueue.splice(i, 1);
+      }
     }
   }
 
   // 2. If the current actively playing announcement belongs to this staff member, halt it immediately!
   if (currentActiveItem) {
-    const matchId = sessionId && currentActiveItem.sessionId === sessionId;
-    const matchNip =
-      cleanNip &&
-      currentActiveItem.nip &&
-      (currentActiveItem.nip === cleanNip ||
-        (!isNaN(parseInt(cleanNip, 10)) && parseInt(currentActiveItem.nip, 10) === parseInt(cleanNip, 10)));
-    const matchName =
-      cleanName &&
-      currentActiveItem.employeeName &&
-      currentActiveItem.employeeName.toLowerCase().includes(cleanName);
-
-    if (matchId || matchNip || matchName) {
-      console.log(`[AudioQueue] Aborting actively playing announcement for "${currentActiveItem.label}".`);
-      isCurrentItemCancelled = true;
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+    if (currentActiveItem.targets && currentActiveItem.targets.length > 0) {
+      currentActiveItem.targets = currentActiveItem.targets.filter((t) => !matchesTarget(t));
+      if (currentActiveItem.targets.length === 0) {
+        abortActivePlaying();
       }
-      if (activePlayingAudio) {
-        try {
-          activePlayingAudio.pause();
-          activePlayingAudio.currentTime = 0;
-        } catch {}
-        activePlayingAudio = null;
+    } else {
+      const matchId = sessionId && currentActiveItem.sessionId === sessionId;
+      const matchNip =
+        cleanNip &&
+        currentActiveItem.nip &&
+        (currentActiveItem.nip === cleanNip ||
+          (!isNaN(parseInt(cleanNip, 10)) && parseInt(currentActiveItem.nip, 10) === parseInt(cleanNip, 10)));
+      const matchName =
+        cleanName &&
+        ((currentActiveItem.employeeName && currentActiveItem.employeeName.toLowerCase().includes(cleanName)) ||
+          (currentActiveItem.label && currentActiveItem.label.toLowerCase().includes(cleanName)));
+
+      if (matchId || matchNip || matchName) {
+        abortActivePlaying();
       }
     }
   }
@@ -871,7 +933,6 @@ export function enqueueAnnouncement(
   const now = Date.now();
 
   // Deduplicate if identical call was completed in the last 5 minutes (300,000ms)
-  // Each alert (sisa 5m, tepat 40m, overdue) should ONLY be called ONCE per break session!
   const lastFinished = recentlyCompleted.get(dedupeKey);
   if (lastFinished && now - lastFinished < 300000) {
     return Promise.resolve();
@@ -892,15 +953,110 @@ export function enqueueAnnouncement(
     }
   }
 
+  const singleTarget: StaffAnnouncementTarget = {
+    name: meta?.employeeName || label,
+    nip: meta?.nip,
+    sessionId: meta?.sessionId,
+  };
+
   return new Promise<void>((resolve, reject) => {
     const item: QueuedItem = {
       id: 'q_' + Math.random().toString(36).substring(2, 9),
       dedupeKey,
       label,
+      targets: [singleTarget],
       nip: meta?.nip,
       sessionId: meta?.sessionId,
       employeeName: meta?.employeeName,
       execute: task,
+      resolve,
+      reject,
+      timestamp: now,
+    };
+
+    audioQueue.push(item);
+    emitQueueStatus();
+    processAudioQueue();
+  });
+}
+
+/**
+ * Enqueues a group announcement for multiple staff in the same minute / category.
+ * If an announcement of the SAME category is ALREADY waiting in the audio queue (within 60s),
+ * new targets are merged into it so their names are spoken together in one broadcast!
+ */
+export function playAudioGroup(
+  category: 'audio1' | 'audio2' | 'audio3',
+  rawTargets: StaffAnnouncementTarget[]
+): Promise<void> {
+  const targets = rawTargets.filter((t) => t && t.name && t.name.trim().length > 0);
+  if (targets.length === 0) return Promise.resolve();
+
+  const now = Date.now();
+
+  // Filter out any target who has ALREADY checked out
+  const activeTargets = targets.filter((t) => {
+    if (activeSessionChecker) {
+      return activeSessionChecker(t.nip, t.sessionId, t.name);
+    }
+    return true;
+  });
+
+  if (activeTargets.length === 0) {
+    console.log(`[AudioQueue] All staff in group have already checked out. Skipping.`);
+    return Promise.resolve();
+  }
+
+  const categoryLabel =
+    category === 'audio1'
+      ? 'Waktu 40 Menit Habis'
+      : category === 'audio2'
+      ? 'Peringatan 5 Menit'
+      : 'Lewat 40 Menit';
+
+  // 1. COALESCING: Check if an announcement for the same category is ALREADY waiting in queue (within last 60s)
+  const waitingItem = audioQueue.find((q) => q.category === category && now - q.timestamp < 60000);
+  if (waitingItem) {
+    for (const t of activeTargets) {
+      const exists = waitingItem.targets.some(
+        (ex) =>
+          (t.sessionId && ex.sessionId === t.sessionId) ||
+          (t.nip && ex.nip === t.nip) ||
+          ex.name.toLowerCase().trim() === t.name.toLowerCase().trim()
+      );
+      if (!exists) {
+        waitingItem.targets.push(t);
+      }
+    }
+    const allCleanNames = waitingItem.targets.map((x) => formatNameForSpeech(x.name));
+    waitingItem.label = `${allCleanNames.join(', ')} (${categoryLabel})`;
+    emitQueueStatus();
+    return Promise.resolve();
+  }
+
+  // 2. Otherwise enqueue new group announcement item
+  const dedupeKey = `grp_${category}_${activeTargets.map((x) => x.sessionId || x.nip || x.name).join('_')}`;
+
+  // Check if identical call finished recently
+  const lastFinished = recentlyCompleted.get(dedupeKey);
+  if (lastFinished && now - lastFinished < 180000) {
+    return Promise.resolve();
+  }
+
+  const cleanNames = activeTargets.map((x) => formatNameForSpeech(x.name));
+  const label = `${cleanNames.join(', ')} (${categoryLabel})`;
+
+  return new Promise<void>((resolve, reject) => {
+    const item: QueuedItem = {
+      id: 'q_' + Math.random().toString(36).substring(2, 9),
+      category,
+      dedupeKey,
+      label,
+      targets: [...activeTargets],
+      nip: activeTargets[0]?.nip,
+      sessionId: activeTargets[0]?.sessionId,
+      employeeName: activeTargets[0]?.name,
+      execute: () => executeAudioGroup(category, item),
       resolve,
       reject,
       timestamp: now,
@@ -931,22 +1087,38 @@ async function processAudioQueue() {
   currentActiveAnnouncement = currentItem.label;
   emitQueueStatus();
 
-  // CRITICAL CHECK: Before speaking a single sound, verify if the staff member has already checked out!
+  // CRITICAL CHECK: Before speaking a single sound, verify if the staff members have already checked out!
   if (activeSessionChecker) {
-    const isStillActive = activeSessionChecker(
-      currentItem.nip,
-      currentItem.sessionId,
-      currentItem.employeeName
-    );
-    if (!isStillActive) {
-      console.log(`[AudioQueue] Staff "${currentItem.label}" has already checked out! Dropping announcement.`);
-      currentItem.resolve();
-      currentActiveItem = null;
-      isQueueProcessing = false;
-      currentActiveAnnouncement = null;
-      emitQueueStatus();
-      processAudioQueue();
-      return;
+    if (currentItem.targets && currentItem.targets.length > 0) {
+      currentItem.targets = currentItem.targets.filter((t) =>
+        activeSessionChecker!(t.nip, t.sessionId, t.name)
+      );
+      if (currentItem.targets.length === 0) {
+        console.log(`[AudioQueue] Staff in "${currentItem.label}" have all checked out! Dropping announcement.`);
+        currentItem.resolve();
+        currentActiveItem = null;
+        isQueueProcessing = false;
+        currentActiveAnnouncement = null;
+        emitQueueStatus();
+        processAudioQueue();
+        return;
+      }
+    } else {
+      const isStillActive = activeSessionChecker(
+        currentItem.nip,
+        currentItem.sessionId,
+        currentItem.employeeName
+      );
+      if (!isStillActive) {
+        console.log(`[AudioQueue] Staff "${currentItem.label}" has already checked out! Dropping announcement.`);
+        currentItem.resolve();
+        currentActiveItem = null;
+        isQueueProcessing = false;
+        currentActiveAnnouncement = null;
+        emitQueueStatus();
+        processAudioQueue();
+        return;
+      }
     }
   }
 
@@ -984,39 +1156,62 @@ async function processAudioQueue() {
 
 // ---------------- Announcement Playback Implementations ---------------- //
 
-async function executeAudio1(staffName: string, nip?: string, sessionId?: string): Promise<void> {
-  const isCancelled = () => {
-    if (isCurrentItemCancelled) return true;
-    if (activeSessionChecker && !activeSessionChecker(nip, sessionId, staffName)) {
-      return true;
-    }
-    return false;
+async function executeAudioGroup(
+  category: 'audio1' | 'audio2' | 'audio3',
+  itemOrTargets: QueuedItem | StaffAnnouncementTarget[]
+): Promise<void> {
+  const getActiveTargets = (): StaffAnnouncementTarget[] => {
+    if (isCurrentItemCancelled) return [];
+    const list = Array.isArray(itemOrTargets) ? itemOrTargets : itemOrTargets.targets;
+    if (!activeSessionChecker) return list;
+    return list.filter((t) => activeSessionChecker!(t.nip, t.sessionId, t.name));
   };
 
-  if (isCancelled()) return;
-  await playStationChime();
-  if (isCancelled()) return;
+  let active = getActiveTargets();
+  if (active.length === 0) return;
 
-  const cleanName = formatNameForSpeech(staffName);
-  const introPhrase = `${cleanName}, ada pesan buat kamu.`;
+  // 1. Chime Tone
+  if (category === 'audio3') {
+    await playUrgentOverdueChime();
+  } else {
+    await playStationChime();
+  }
+
+  active = getActiveTargets();
+  if (active.length === 0) return;
+
+  // 2. Synthesize Personalized Names Intro
+  const rawNames = active.map((t) => t.name);
+  const combinedSpeechNames = formatMultipleNamesForSpeech(rawNames);
+  const introPhrase =
+    active.length === 1
+      ? `${combinedSpeechNames}, ada pesan buat kamu.`
+      : `${combinedSpeechNames}, ada pesan buat kalian.`;
 
   await speakIndonesian(introPhrase, 0.94, 1.0);
-  if (isCancelled()) return;
-  await waitMs(300);
-  if (isCancelled()) return;
 
-  const audioSrc = getCustomAudio('audio1') || AUDIO_FILE_PATHS.audio1;
+  active = getActiveTargets();
+  if (active.length === 0) return;
+  await waitMs(300);
+
+  active = getActiveTargets();
+  if (active.length === 0) return;
+
+  // 3. Play Store Sound / Recorded Audio Clip
+  const audioSrc = getCustomAudio(category) || AUDIO_FILE_PATHS[category];
   await playAudioElement(audioSrc);
-  if (isCancelled()) return;
 
+  active = getActiveTargets();
+  if (active.length === 0) return;
   await waitMs(300);
-  if (isCancelled()) return;
+
+  // 4. Outro Chime
   await playStationOutroChime();
 }
 
 /**
  * AUDIO 1: Saat sudah 40 menit
- * Enqueued sequentially so multiple employees never overlap.
+ * Supports combining multiple names if triggered in the same minute / batch.
  */
 export function playAudio1Sudah40Menit(
   staffName: string,
@@ -1041,51 +1236,20 @@ export function playAudio1Sudah40Menit(
     sessionId = undefined;
   }
 
-  const cleanName = formatNameForSpeech(staffName);
-  const dedupeKey = sessionId ? `audio1_sess_${sessionId}` : `audio1_${(nip || cleanName).toLowerCase()}`;
-  const label = `${cleanName} (Waktu 40 Menit Habis)`;
-  return enqueueAnnouncement(
-    dedupeKey,
-    label,
-    () => executeAudio1(staffName, nip, sessionId),
-    { nip, sessionId, employeeName: staffName }
-  );
-}
-
-async function executeAudio2(staffName: string, nip?: string, sessionId?: string): Promise<void> {
-  const isCancelled = () => {
-    if (isCurrentItemCancelled) return true;
-    if (activeSessionChecker && !activeSessionChecker(nip, sessionId, staffName)) {
-      return true;
-    }
-    return false;
-  };
-
-  if (isCancelled()) return;
-  await playStationChime();
-  if (isCancelled()) return;
-
-  const cleanName = formatNameForSpeech(staffName);
-  const introPhrase = `${cleanName}, ada pesan buat kamu.`;
-
-  await speakIndonesian(introPhrase, 0.94, 1.0);
-  if (isCancelled()) return;
-  await waitMs(300);
-  if (isCancelled()) return;
-
-  // Exact user-requested audio: "Hai guys, waktunya 5 menit lagi, siap-siap ya!"
-  const audioSrc = getCustomAudio('audio2') || AUDIO_FILE_PATHS.audio2;
-  await playAudioElement(audioSrc);
-  if (isCancelled()) return;
-
-  await waitMs(300);
-  if (isCancelled()) return;
-  await playStationOutroChime();
+  return playAudioGroup('audio1', [
+    {
+      name: staffName,
+      nip,
+      sessionId,
+      jobTitle: effectiveJob,
+      department: effectiveDept,
+    },
+  ]);
 }
 
 /**
  * AUDIO 2: Saat 5 menit lagi habis (menit ke-35)
- * Enqueued sequentially so multiple employees never overlap.
+ * Supports combining multiple names if triggered in the same minute / batch.
  */
 export function playAudio2Sisa5Menit(
   staffName: string,
@@ -1110,50 +1274,20 @@ export function playAudio2Sisa5Menit(
     sessionId = undefined;
   }
 
-  const cleanName = formatNameForSpeech(staffName);
-  const dedupeKey = sessionId ? `audio2_sess_${sessionId}` : `audio2_${(nip || cleanName).toLowerCase()}`;
-  const label = `${cleanName} (Peringatan 5 Menit: Hai guys...)`;
-  return enqueueAnnouncement(
-    dedupeKey,
-    label,
-    () => executeAudio2(staffName, nip, sessionId),
-    { nip, sessionId, employeeName: staffName }
-  );
-}
-
-async function executeAudio3(staffName: string, nip?: string, sessionId?: string): Promise<void> {
-  const isCancelled = () => {
-    if (isCurrentItemCancelled) return true;
-    if (activeSessionChecker && !activeSessionChecker(nip, sessionId, staffName)) {
-      return true;
-    }
-    return false;
-  };
-
-  if (isCancelled()) return;
-  await playUrgentOverdueChime();
-  if (isCancelled()) return;
-
-  const cleanName = formatNameForSpeech(staffName);
-  const introPhrase = `${cleanName}, ada pesan buat kamu.`;
-
-  await speakIndonesian(introPhrase, 0.94, 1.0);
-  if (isCancelled()) return;
-  await waitMs(300);
-  if (isCancelled()) return;
-
-  const audioSrc = getCustomAudio('audio3') || AUDIO_FILE_PATHS.audio3;
-  await playAudioElement(audioSrc);
-  if (isCancelled()) return;
-
-  await waitMs(300);
-  if (isCancelled()) return;
-  await playStationOutroChime();
+  return playAudioGroup('audio2', [
+    {
+      name: staffName,
+      nip,
+      sessionId,
+      jobTitle: effectiveJob,
+      department: effectiveDept,
+    },
+  ]);
 }
 
 /**
  * AUDIO 3: Saat sudah lewat 40 menit (> 40 menit / Overdue)
- * Enqueued sequentially so multiple employees never overlap.
+ * Supports combining multiple names if triggered in the same minute / batch.
  */
 export function playAudio3UdahLewat40Menit(
   staffName: string,
@@ -1178,15 +1312,15 @@ export function playAudio3UdahLewat40Menit(
     sessionId = undefined;
   }
 
-  const cleanName = formatNameForSpeech(staffName);
-  const dedupeKey = sessionId ? `audio3_sess_${sessionId}` : `audio3_${(nip || cleanName).toLowerCase()}`;
-  const label = `${cleanName} (Lewat 40 Menit)`;
-  return enqueueAnnouncement(
-    dedupeKey,
-    label,
-    () => executeAudio3(staffName, nip, sessionId),
-    { nip, sessionId, employeeName: staffName }
-  );
+  return playAudioGroup('audio3', [
+    {
+      name: staffName,
+      nip,
+      sessionId,
+      jobTitle: effectiveJob,
+      department: effectiveDept,
+    },
+  ]);
 }
 
 // Backward-compatible triggers

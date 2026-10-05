@@ -323,31 +323,42 @@ loadInitialCache();
 // Register session checker so sound queue NEVER calls staff who already checked out!
 registerActiveSessionChecker((nip, sessionId, name) => {
   const all = getAllSessions();
-  if (sessionId && sessionId.startsWith('brk_')) {
+  // 1. Explicit Session ID check
+  if (sessionId) {
     const s = all.find((x) => x.id === sessionId);
     if (s) {
       return s.endTime === null;
     }
   }
-  if (nip && !isNaN(Number(nip))) {
+  // 2. Staff NIP check
+  if (nip) {
     const cleanNip = String(nip).trim();
-    const active = all.find(
+    const userSessions = all.filter(
       (x) =>
-        (x.nip === cleanNip ||
-          (!isNaN(parseInt(cleanNip, 10)) && parseInt(x.nip, 10) === parseInt(cleanNip, 10))) &&
-        x.endTime === null
+        x.nip === cleanNip ||
+        (!isNaN(parseInt(cleanNip, 10)) && parseInt(x.nip, 10) === parseInt(cleanNip, 10))
     );
-    return Boolean(active);
+    if (userSessions.length > 0) {
+      // Sort by start time descending (most recent session first)
+      userSessions.sort((a, b) => b.startTime - a.startTime);
+      const latest = userSessions[0];
+      // If the latest session has already ended, they are not on break!
+      return latest.endTime === null;
+    }
   }
+  // 3. Staff Name check
   if (name) {
     const cleanName = name.toLowerCase().trim();
-    const active = all.find(
+    const nameSessions = all.filter(
       (x) =>
-        (x.employeeName.toLowerCase().includes(cleanName) ||
-          cleanName.includes(x.employeeName.toLowerCase())) &&
-        x.endTime === null
+        x.employeeName.toLowerCase().trim() === cleanName ||
+        x.employeeName.toLowerCase().includes(cleanName) ||
+        cleanName.includes(x.employeeName.toLowerCase())
     );
-    return Boolean(active);
+    if (nameSessions.length > 0) {
+      nameSessions.sort((a, b) => b.startTime - a.startTime);
+      return nameSessions[0].endTime === null;
+    }
   }
   return false;
 });
@@ -493,7 +504,15 @@ export function reconcileSessionCollection(
   for (const prev of memorySessions) {
     if (prev.endTime === null) {
       const updated = sessionMap.get(prev.id);
-      if (updated && updated.endTime !== null) {
+      const isEndedById = updated && updated.endTime !== null;
+      const isEndedByNip = Array.from(sessionMap.values()).some(
+        (s) =>
+          (s.nip === prev.nip ||
+            (!isNaN(parseInt(prev.nip, 10)) && parseInt(s.nip, 10) === parseInt(prev.nip, 10))) &&
+          s.endTime !== null &&
+          s.startTime >= prev.startTime - 15000
+      );
+      if (isEndedById || isEndedByNip) {
         cancelAnnouncementsForStaff(prev.nip, prev.employeeName, prev.id);
       }
     }
@@ -990,49 +1009,53 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
 }
 
 // End Break (Optimistic + Backend Central Server Sync)
-export function endStaffBreak(nip: string): { success: boolean; message: string; durationMinutes?: number } {
+export function endStaffBreak(
+  nip: string,
+  sessionIdParam?: string,
+  employeeNameParam?: string
+): { success: boolean; message: string; durationMinutes?: number } {
   const all = getAllSessions();
   const cleanNip = String(nip).trim();
+  const cleanName = employeeNameParam ? employeeNameParam.trim().toLowerCase() : '';
 
   // Find all active sessions for this employee
   const matchingIndices: number[] = [];
   all.forEach((s, idx) => {
+    const matchesId = sessionIdParam && s.id === sessionIdParam;
     const matchesNip =
-      s.nip === cleanNip ||
-      (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10));
-    if (matchesNip && s.endTime === null) {
+      cleanNip &&
+      (s.nip === cleanNip ||
+        (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10)));
+    const matchesName = cleanName && s.employeeName && s.employeeName.trim().toLowerCase() === cleanName;
+
+    if ((matchesId || matchesNip || matchesName) && s.endTime === null) {
       matchingIndices.push(idx);
     }
   });
 
-  if (matchingIndices.length === 0) {
-    return {
-      success: false,
-      message: 'Tidak ditemukan sesi istirahat aktif untuk diselesaikan.',
-    };
-  }
-
   const now = getSynchronizedNow();
   let firstDuration = 0;
-  let employeeName = '';
-  let sessionId = '';
+  let employeeName = employeeNameParam || '';
+  let sessionId = sessionIdParam || '';
 
-  matchingIndices.forEach((idx) => {
-    const session = all[idx];
-    employeeName = session.employeeName;
-    sessionId = session.id;
-    const durationMs = now - session.startTime;
-    const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
-    if (!firstDuration) firstDuration = durationMinutes;
+  if (matchingIndices.length > 0) {
+    matchingIndices.forEach((idx) => {
+      const session = all[idx];
+      if (!employeeName) employeeName = session.employeeName;
+      if (!sessionId) sessionId = session.id;
+      const durationMs = now - session.startTime;
+      const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
+      if (!firstDuration) firstDuration = durationMinutes;
 
-    all[idx] = {
-      ...session,
-      endTime: now,
-      durationMinutes,
-    };
-  });
+      all[idx] = {
+        ...session,
+        endTime: now,
+        durationMinutes,
+      };
+    });
 
-  saveSessions(all);
+    saveSessions(all);
+  }
 
   // 1. CANCEL ANY PENDING ANNOUNCEMENTS FOR THIS EMPLOYEE IMMEDIATELY!
   cancelAnnouncementsForStaff(cleanNip, employeeName, sessionId);
@@ -1046,16 +1069,16 @@ export function endStaffBreak(nip: string): { success: boolean; message: string;
     timestamp: now,
   });
 
-  // 3. Sync with central server
+  // 3. Sync with central server (authoritative update)
   fetch('/api/sessions/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nip: cleanNip, sessionId, endTime: now }),
+    body: JSON.stringify({ nip: cleanNip, sessionId, employeeName, endTime: now }),
   })
     .then((r) => r.json())
     .then((data) => {
       if (data && data.session) {
-        reconcileSessionCollection([data.session], 0, false);
+        reconcileSessionCollection([data.session], 0, true);
       }
       fetchServerState(true);
     })
@@ -1063,8 +1086,10 @@ export function endStaffBreak(nip: string): { success: boolean; message: string;
 
   return {
     success: true,
-    message: `Istirahat selesai! Durasi sesi ini: ${firstDuration} menit. Selamat kembali beraktivitas di floor!`,
-    durationMinutes: firstDuration,
+    message: firstDuration
+      ? `Istirahat selesai! Durasi sesi ini: ${firstDuration} menit. Selamat kembali beraktivitas di floor!`
+      : 'Istirahat selesai! Selamat kembali beraktivitas di floor!',
+    durationMinutes: firstDuration || 40,
   };
 }
 

@@ -23,6 +23,7 @@ import {
   playAudio1Sudah40Menit,
   playAudio2Sisa5Menit,
   playAudio3UdahLewat40Menit,
+  playAudioGroup,
   announceCustomCall,
   subscribeAudioQueue,
   AudioQueueStatus,

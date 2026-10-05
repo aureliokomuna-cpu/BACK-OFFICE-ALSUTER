@@ -660,8 +660,9 @@ async function startServer() {
 
   // End Break Session (Master Clock Authority)
   app.post('/api/sessions/end', (req: Request, res: Response) => {
-    const { nip, sessionId, endTime } = req.body;
+    const { nip, sessionId, endTime, employeeName } = req.body;
     const cleanNip = nip ? String(nip).trim() : '';
+    const cleanName = employeeName ? String(employeeName).trim().toLowerCase() : '';
 
     let matchedCount = 0;
     const serverMasterNow = Date.now();
@@ -678,8 +679,9 @@ async function startServer() {
         cleanNip &&
         (s.nip === cleanNip ||
           (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10)));
+      const matchName = cleanName && s.employeeName && s.employeeName.trim().toLowerCase() === cleanName;
 
-      if ((matchId || matchNip) && s.endTime === null) {
+      if ((matchId || matchNip || matchName) && s.endTime === null) {
         matchedCount++;
         const durationMs = finishTime - s.startTime;
         const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
@@ -701,7 +703,8 @@ async function startServer() {
           (sessionId && s.id === sessionId) ||
           (cleanNip &&
             (s.nip === cleanNip ||
-              (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10))))
+              (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10)))) ||
+          (cleanName && s.employeeName && s.employeeName.trim().toLowerCase() === cleanName)
       );
       if (existing && existing.endTime !== null) {
         return res.json({

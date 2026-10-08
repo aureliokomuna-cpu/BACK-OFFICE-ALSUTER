@@ -697,8 +697,8 @@ async function startServer() {
     });
 
     if (matchedCount === 0) {
-      // If already ended previously, return existing completed session
-      const existing = serverState.sessions.find(
+      // If already ended previously, return the most recent completed session
+      const existing = [...serverState.sessions].reverse().find(
         (s) =>
           (sessionId && s.id === sessionId) ||
           (cleanNip &&
@@ -711,6 +711,7 @@ async function startServer() {
           success: true,
           message: `Istirahat selesai! Durasi sesi: ${existing.durationMinutes} menit.`,
           session: existing,
+          sessions: serverState.sessions,
           durationMinutes: existing.durationMinutes,
           serverTime: Date.now(),
         });
@@ -764,6 +765,7 @@ async function startServer() {
       success: true,
       message: `Istirahat selesai!`,
       session: primarySession,
+      sessions: serverState.sessions,
       durationMinutes: primarySession?.durationMinutes,
       serverTime: Date.now(),
     });

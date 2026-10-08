@@ -22,6 +22,7 @@ import {
   unlockAudio,
   saveCustomAudio,
   playAudioElement,
+  cancelAnnouncementsForStaff,
 } from '../services/soundService';
 
 interface StaffBreakViewProps {
@@ -83,7 +84,12 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
 
         // 1. Audio 2: Sisa 5 menit lagi (menit ke-35 s.d < 40)
         const warn5mKey = `staff_warn5m_${current.activeSession.id}`;
-        if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !localPlayedAlertsRef.current.has(warn5mKey)) {
+        if (
+          elapsedSec >= 35 * 60 &&
+          elapsedSec < 40 * 60 &&
+          !current.activeSession.warningPlayed &&
+          !localPlayedAlertsRef.current.has(warn5mKey)
+        ) {
           localPlayedAlertsRef.current.add(warn5mKey);
           current.activeSession.warningPlayed = true;
           markWarningPlayed(current.activeSession.id);
@@ -100,7 +106,12 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
 
         // 2. Audio 1: Tepat 40 menit habis (menit ke-40 s.d < 41)
         const warn40mKey = `staff_warn40m_${current.activeSession.id}`;
-        if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !localPlayedAlertsRef.current.has(warn40mKey)) {
+        if (
+          elapsedSec >= 40 * 60 &&
+          elapsedSec < 41 * 60 &&
+          !current.activeSession.alarmPlayed &&
+          !localPlayedAlertsRef.current.has(warn40mKey)
+        ) {
           localPlayedAlertsRef.current.add(warn40mKey);
           current.activeSession.alarmPlayed = true;
           markAlarmPlayed(current.activeSession.id);
@@ -115,9 +126,14 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
           onSessionChanged();
         }
 
-        // 3. Audio 3: Sudah lewat 40 menit (menit ke-41 ke atas)
+        // 3. Audio 3: Sudah lewat 40 menit (menit ke-41 ke atas, up to 120m)
         const warnOverdueKey = `staff_overdue_${current.activeSession.id}`;
-        if (elapsedSec >= 41 * 60 && !localPlayedAlertsRef.current.has(warnOverdueKey)) {
+        if (
+          elapsedSec >= 41 * 60 &&
+          elapsedSec < 120 * 60 &&
+          !current.activeSession.overduePlayed &&
+          !localPlayedAlertsRef.current.has(warnOverdueKey)
+        ) {
           localPlayedAlertsRef.current.add(warnOverdueKey);
           current.activeSession.overduePlayed = true;
           markOverduePlayed(current.activeSession.id);
@@ -175,9 +191,11 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
   const handleToggleBreak = () => {
     setAlertMessage(null);
 
-    if (summary.isCurrentlyOnBreak) {
+    if (summary.isCurrentlyOnBreak || summary.activeSession) {
       // Selesai Istirahat
-      const res = endStaffBreak(currentUser.nip);
+      const activeId = summary.activeSession?.id;
+      const res = endStaffBreak(currentUser.nip, activeId, currentUser.name);
+      cancelAnnouncementsForStaff(currentUser.nip, currentUser.name, activeId);
       if (res.success) {
         confetti({
           particleCount: 40,

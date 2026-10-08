@@ -388,17 +388,41 @@ export function reconcileSessionCollection(
         sessionMap.set(s.id, s);
       }
       for (const remote of incomingSessions) {
-        const local = sessionMap.get(remote.id);
-        if (local) {
-          sessionMap.set(remote.id, {
-            ...local,
-            ...remote,
-            warningPlayed: local.warningPlayed || remote.warningPlayed,
-            alarmPlayed: local.alarmPlayed || remote.alarmPlayed,
-            overduePlayed: local.overduePlayed || remote.overduePlayed,
-          });
-        } else {
+        if (remote.endTime !== null) {
+          for (const [k, existing] of sessionMap.entries()) {
+            const matchId = existing.id === remote.id;
+            const matchNip =
+              remote.nip &&
+              (existing.nip === remote.nip ||
+                (!isNaN(parseInt(remote.nip, 10)) &&
+                  parseInt(existing.nip, 10) === parseInt(remote.nip, 10)));
+            const matchName =
+              remote.employeeName &&
+              existing.employeeName &&
+              existing.employeeName.trim().toLowerCase() === remote.employeeName.trim().toLowerCase();
+
+            if (matchId || matchNip || matchName) {
+              sessionMap.set(k, {
+                ...existing,
+                endTime: remote.endTime,
+                durationMinutes: remote.durationMinutes || existing.durationMinutes,
+              });
+            }
+          }
           sessionMap.set(remote.id, remote);
+        } else {
+          const local = sessionMap.get(remote.id);
+          if (local) {
+            sessionMap.set(remote.id, {
+              ...local,
+              ...remote,
+              warningPlayed: local.warningPlayed || remote.warningPlayed,
+              alarmPlayed: local.alarmPlayed || remote.alarmPlayed,
+              overduePlayed: local.overduePlayed || remote.overduePlayed,
+            });
+          } else {
+            sessionMap.set(remote.id, remote);
+          }
         }
       }
     } else {
@@ -882,8 +906,14 @@ export function getTodaySessions(): BreakSession[] {
 
 export function getStaffDailySummary(nip: string, targetDate: string = getTodayDateString()): DailyStaffSummary {
   const allSessions = getAllSessions();
+  const cleanNip = String(nip).trim();
   const staffSessions = allSessions
-    .filter((s) => s.nip === nip && (s.date === targetDate || s.endTime === null))
+    .filter(
+      (s) =>
+        (s.nip === cleanNip ||
+          (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10))) &&
+        (s.date === targetDate || s.endTime === null)
+    )
     .sort((a, b) => a.startTime - b.startTime);
 
   let totalMinutesUsed = 0;
@@ -1077,7 +1107,9 @@ export function endStaffBreak(
   })
     .then((r) => r.json())
     .then((data) => {
-      if (data && data.session) {
+      if (data && Array.isArray(data.sessions)) {
+        reconcileSessionCollection(data.sessions, 0, true);
+      } else if (data && data.session) {
         reconcileSessionCollection([data.session], 0, true);
       }
       fetchServerState(true);

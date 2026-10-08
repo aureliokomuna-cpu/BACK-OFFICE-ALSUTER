@@ -100,42 +100,102 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
       setEmployees(getEmployees());
 
       // Auto-broadcast when staff reach 35m, 40m, or 41m
+      // Groups staff in the same minute / tick into one unified announcement per category!
       if (autoAnnounce) {
+        const group5m: BreakSession[] = [];
+        const group40m: BreakSession[] = [];
+        const groupOverdue: BreakSession[] = [];
+
         currentSessions.forEach((s) => {
           if (s.endTime === null) {
             const elapsedSec = Math.floor((now - s.startTime) / 1000);
 
             // 1. Audio 2: Peringatan sisa 5 menit (menit ke-35 s.d < 40)
             const warn5mKey = `mgr_warn5m_${s.id}`;
-            if (elapsedSec >= 35 * 60 && elapsedSec < 40 * 60 && !s.warningPlayed && !localAnnouncedAlertsRef.current.has(warn5mKey)) {
+            if (
+              elapsedSec >= 35 * 60 &&
+              elapsedSec < 40 * 60 &&
+              !s.warningPlayed &&
+              !localAnnouncedAlertsRef.current.has(warn5mKey)
+            ) {
               localAnnouncedAlertsRef.current.add(warn5mKey);
               s.warningPlayed = true;
               markWarningPlayed(s.id);
-              unlockAudio();
-              playAudio2Sisa5Menit(s.employeeName, s.nip, s.id, s.jobTitle, s.department);
+              group5m.push(s);
             }
 
             // 2. Audio 1: Tepat habis 40 menit (menit ke-40 s.d < 41)
             const warn40mKey = `mgr_warn40m_${s.id}`;
-            if (elapsedSec >= 40 * 60 && elapsedSec < 41 * 60 && !s.alarmPlayed && !localAnnouncedAlertsRef.current.has(warn40mKey)) {
+            if (
+              elapsedSec >= 40 * 60 &&
+              elapsedSec < 41 * 60 &&
+              !s.alarmPlayed &&
+              !localAnnouncedAlertsRef.current.has(warn40mKey)
+            ) {
               localAnnouncedAlertsRef.current.add(warn40mKey);
               s.alarmPlayed = true;
               markAlarmPlayed(s.id);
-              unlockAudio();
-              playAudio1Sudah40Menit(s.employeeName, s.nip, s.id, s.jobTitle, s.department);
+              group40m.push(s);
             }
 
-            // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas)
+            // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas, up to 120m)
             const warnOverdueKey = `mgr_overdue_${s.id}`;
-            if (elapsedSec >= 41 * 60 && !s.overduePlayed && !localAnnouncedAlertsRef.current.has(warnOverdueKey)) {
+            if (
+              elapsedSec >= 41 * 60 &&
+              elapsedSec < 120 * 60 &&
+              !s.overduePlayed &&
+              !localAnnouncedAlertsRef.current.has(warnOverdueKey)
+            ) {
               localAnnouncedAlertsRef.current.add(warnOverdueKey);
               s.overduePlayed = true;
               markOverduePlayed(s.id);
-              unlockAudio();
-              playAudio3UdahLewat40Menit(s.employeeName, s.nip, s.id, s.jobTitle, s.department);
+              groupOverdue.push(s);
             }
           }
         });
+
+        // Broadcast grouped announcements according to category!
+        if (group5m.length > 0) {
+          unlockAudio();
+          playAudioGroup(
+            'audio2',
+            group5m.map((s) => ({
+              name: s.employeeName,
+              nip: s.nip,
+              sessionId: s.id,
+              jobTitle: s.jobTitle,
+              department: s.department,
+            }))
+          );
+        }
+
+        if (group40m.length > 0) {
+          unlockAudio();
+          playAudioGroup(
+            'audio1',
+            group40m.map((s) => ({
+              name: s.employeeName,
+              nip: s.nip,
+              sessionId: s.id,
+              jobTitle: s.jobTitle,
+              department: s.department,
+            }))
+          );
+        }
+
+        if (groupOverdue.length > 0) {
+          unlockAudio();
+          playAudioGroup(
+            'audio3',
+            groupOverdue.map((s) => ({
+              name: s.employeeName,
+              nip: s.nip,
+              sessionId: s.id,
+              jobTitle: s.jobTitle,
+              department: s.department,
+            }))
+          );
+        }
       }
     }, 1000);
     return () => clearInterval(interval);
@@ -251,7 +311,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
   const confirmForceEndBreak = () => {
     if (!pendingEndSession) return;
-    endStaffBreak(pendingEndSession.nip);
+    endStaffBreak(pendingEndSession.nip, pendingEndSession.sessionId, pendingEndSession.name);
     cancelAnnouncementsForStaff(pendingEndSession.nip, pendingEndSession.name, pendingEndSession.sessionId);
     setSessions(getTodaySessions());
     setPendingEndSession(null);
@@ -284,7 +344,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
   const handleToggleMyBreak = () => {
     if (myActiveBreak) {
-      const res = endStaffBreak(currentUser.nip);
+      const res = endStaffBreak(currentUser.nip, myActiveBreak.id, currentUser.name);
       cancelAnnouncementsForStaff(currentUser.nip, currentUser.name, myActiveBreak.id);
       if (res.success) {
         setSessions(getTodaySessions());

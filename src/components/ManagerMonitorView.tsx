@@ -29,6 +29,8 @@ import {
   AudioQueueStatus,
   unlockAudio,
   cancelAnnouncementsForStaff,
+  resetAllAudiosToAIVoice,
+  isAIVoiceMode,
 } from '../services/soundService';
 import { AudioUnlockBanner } from './AudioUnlockBanner';
 import { VoiceStudioModal } from './VoiceStudioModal';
@@ -329,6 +331,35 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     onRefreshNeeded();
   };
 
+  const handleCheckoutAllActive = async () => {
+    if (confirm('Checkout SEMUA staf yang saat ini sedang istirahat agar selesai dan kembali bertugas?')) {
+      try {
+        const res = await fetch('/api/sessions/checkout-all-active', { method: 'POST' }).then((r) => r.json());
+        if (res && res.success) {
+          fetchServerState(true);
+          setSessions(getTodaySessions());
+          onRefreshNeeded();
+          alert(`Berhasil checkout ${res.endedCount || 'seluruh'} staf yang aktif.`);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleResetSoundToAI = async () => {
+    if (
+      confirm(
+        'Reset suara ke Suara AI Resmi di SEMUA device?\nPengumuman akan menggunakan bahasa sopan dan santun tanpa menyinggung (siap untuk pemeriksaan atasan).'
+      )
+    ) {
+      const ok = await resetAllAudiosToAIVoice();
+      if (ok) {
+        alert('Suara berhasil direset ke Suara AI Resmi di semua device!');
+      }
+    }
+  };
+
   const myActiveBreak = useMemo(() => {
     return sessions.find((s) => s.nip === currentUser.nip && s.endTime === null);
   }, [sessions, currentUser.nip]);
@@ -507,6 +538,18 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
             <span>⚡ Uji Alarm / Edit Waktu</span>
           </button>
 
+          {activeBreaks.length > 0 && (
+            <button
+              type="button"
+              onClick={handleCheckoutAllActive}
+              title="Checkout seluruh staf yang aktif saat ini"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold shadow-xs hover:bg-emerald-100 active:scale-95 transition-all cursor-pointer"
+            >
+              <CheckCircle className="w-4 h-4 text-emerald-600" />
+              <span>Checkout Semua ({activeBreaks.length})</span>
+            </button>
+          )}
+
           {sessions.length > 0 && (
             <button
               type="button"
@@ -518,6 +561,17 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
               <span className="hidden sm:inline">Kosongkan Sesi</span>
             </button>
           )}
+
+          {/* Reset Suara ke AI Resmi di Semua Device */}
+          <button
+            type="button"
+            onClick={handleResetSoundToAI}
+            title="Reset suara di semua device ke Suara AI Resmi yang sopan dan santun"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 border border-blue-300 text-[#0033A0] text-xs font-bold shadow-xs hover:bg-blue-100 active:scale-95 transition-all cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4 text-[#0033A0]" />
+            <span>Reset Suara ke AI</span>
+          </button>
 
           <button
             type="button"
@@ -1023,7 +1077,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                           type="button"
                           onClick={() => handleVoiceCall('audio1', s.employeeName, s.nip, s.id, s.jobTitle, s.department)}
                           disabled={callingNip !== null}
-                          title="Audio 1: Waktu Habis (40 Mnt) - Cepat Jualan Lagi!"
+                          title="Audio 1: Waktu 40 Menit Selesai (Bahasa Resmi)"
                           className="py-1.5 px-1 rounded-lg bg-[#0033A0] hover:bg-[#00257A] text-white text-[10px] font-bold text-center active:scale-95 transition-all cursor-pointer shadow-xs"
                         >
                           Pas 40 Mnt
@@ -1033,7 +1087,7 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                           type="button"
                           onClick={() => handleVoiceCall('audio3', s.employeeName, s.nip, s.id, s.jobTitle, s.department)}
                           disabled={callingNip !== null}
-                          title="Audio 3: Lewat 40 Mnt (Masuk ke Floor Sekarang!)"
+                          title="Audio 3: Melebihi Batas 40 Menit (Bahasa Resmi)"
                           className="py-1.5 px-1 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-[10px] font-bold text-center active:scale-95 transition-all cursor-pointer"
                         >
                           &gt;40 Mnt
@@ -1070,10 +1124,10 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
                           {callingNip?.startsWith(s.nip)
                             ? 'Menyiarkan...'
                             : elapsedMinutes >= 40
-                            ? 'Panggil Darurat (>40 Mnt)'
+                            ? 'Panggil Melebihi Batas (>40 Mnt)'
                             : elapsedMinutes >= 35
-                            ? 'Panggil Habis (Jualan Lagi)'
-                            : 'Peringatkan (Sisa 5 Mnt)'}
+                            ? 'Panggil Waktu Habis (40 Mnt)'
+                            : 'Peringatan Sisa 5 Mnt'}
                         </span>
                       </button>
 

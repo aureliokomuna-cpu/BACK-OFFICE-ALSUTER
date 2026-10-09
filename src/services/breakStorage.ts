@@ -7,6 +7,7 @@ import {
   applyServerCustomAudios,
   registerActiveSessionChecker,
   cancelAnnouncementsForStaff,
+  isStaffRecentlyCheckedOut,
 } from './soundService';
 
 const STORAGE_KEYS = {
@@ -322,12 +323,15 @@ loadInitialCache();
 
 // Register session checker so sound queue NEVER calls staff who already checked out!
 registerActiveSessionChecker((nip, sessionId, name) => {
+  if (isStaffRecentlyCheckedOut(nip, name)) {
+    return false;
+  }
   const all = getAllSessions();
   // 1. Explicit Session ID check
   if (sessionId) {
     const s = all.find((x) => x.id === sessionId);
-    if (s) {
-      return s.endTime === null;
+    if (s && s.endTime !== null) {
+      return false;
     }
   }
   // 2. Staff NIP check
@@ -429,8 +433,8 @@ export function reconcileSessionCollection(
       // Full authoritative server snapshot
       for (const remote of incomingSessions) {
         if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
-        // Auto-close abandoned breaks > 16 hours
-        if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
+        // Auto-close abandoned breaks > 2 hours (120 minutes max limit)
+        if (remote.endTime === null && now - remote.startTime > 2 * 3600 * 1000) {
           sessionMap.set(remote.id, {
             ...remote,
             endTime: remote.startTime + 40 * 60 * 1000,
@@ -533,10 +537,16 @@ export function reconcileSessionCollection(
         (s) =>
           (s.nip === prev.nip ||
             (!isNaN(parseInt(prev.nip, 10)) && parseInt(s.nip, 10) === parseInt(prev.nip, 10))) &&
-          s.endTime !== null &&
-          s.startTime >= prev.startTime - 15000
+          s.endTime !== null
       );
-      if (isEndedById || isEndedByNip) {
+      const isEndedByName = Array.from(sessionMap.values()).some(
+        (s) =>
+          s.employeeName &&
+          prev.employeeName &&
+          s.employeeName.trim().toLowerCase() === prev.employeeName.trim().toLowerCase() &&
+          s.endTime !== null
+      );
+      if (isEndedById || isEndedByNip || isEndedByName) {
         cancelAnnouncementsForStaff(prev.nip, prev.employeeName, prev.id);
       }
     }
@@ -889,7 +899,14 @@ export function saveSessions(sessions: BreakSession[]): void {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessions, lastResetTime: localLastResetTime }),
-  }).catch(() => {});
+  })
+    .then((r) => r.json())
+    .then((data) => {
+      if (data && Array.isArray(data.sessions)) {
+        reconcileSessionCollection(data.sessions, data.lastResetTime || 0, true);
+      }
+    })
+    .catch(() => {});
 }
 
 export function getTodaySessions(): BreakSession[] {

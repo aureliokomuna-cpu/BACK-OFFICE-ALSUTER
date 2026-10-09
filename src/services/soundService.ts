@@ -10,6 +10,7 @@ const STORAGE_KEYS = {
   SPEECH_PITCH: 'informa_speech_pitch',
   SPEECH_RATE: 'informa_speech_rate',
   VOICE_LOCKED: 'informa_voice_locked_v1',
+  VOICE_MODE: 'informa_voice_mode_v2',
 };
 
 let audioContext: AudioContext | null = null;
@@ -19,16 +20,70 @@ let silentAudioUnlocked = false;
  * In-memory custom audio cache synced from server
  */
 const memoryAudioCache: Record<string, string> = {
-  audio2: AUDIO_FILE_PATHS.audio2,
-  audio1: AUDIO_FILE_PATHS.audio1,
-  audio3: AUDIO_FILE_PATHS.audio3,
+  audio2: '',
+  audio1: '',
+  audio3: '',
 };
+
+export function isAIVoiceMode(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const val = localStorage.getItem(STORAGE_KEYS.VOICE_MODE);
+    if (!val) return true; // Default to AI Voice!
+    return val === 'ai_voice';
+  } catch {
+    return true;
+  }
+}
+
+export function setAIVoiceMode(aiMode: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.VOICE_MODE, aiMode ? 'ai_voice' : 'custom_audio');
+  } catch {}
+}
+
+/**
+ * Resets audio settings on this device and across all connected devices to the official AI Voice.
+ */
+export async function resetAllAudiosToAIVoice(): Promise<boolean> {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.AUDIO_1);
+      localStorage.removeItem(STORAGE_KEYS.AUDIO_2);
+      localStorage.removeItem(STORAGE_KEYS.AUDIO_3);
+      localStorage.removeItem(STORAGE_KEYS.VOICE_LOCKED);
+      localStorage.setItem(STORAGE_KEYS.VOICE_MODE, 'ai_voice');
+      memoryAudioCache.audio1 = '';
+      memoryAudioCache.audio2 = '';
+      memoryAudioCache.audio3 = '';
+    } catch {}
+  }
+
+  try {
+    await fetch('/api/custom-audio/reset-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return true;
+  } catch (e) {
+    console.error('Failed to reset audios to AI voice:', e);
+    return false;
+  }
+}
 
 /**
  * Apply server-authoritative custom audios to memory and local storage
  */
 export function applyServerCustomAudios(audios: Record<string, string>) {
   if (!audios) return;
+  if (audios.mode === 'ai_voice') {
+    setAIVoiceMode(true);
+    memoryAudioCache.audio2 = '';
+    memoryAudioCache.audio1 = '';
+    memoryAudioCache.audio3 = '';
+    return;
+  }
   if (audios.audio2) memoryAudioCache.audio2 = audios.audio2;
   if (audios.audio1) memoryAudioCache.audio1 = audios.audio1;
   if (audios.audio3) memoryAudioCache.audio3 = audios.audio3;
@@ -446,11 +501,11 @@ export function playAudioElement(audioSrc: string): Promise<void> {
         try {
           if (!isCurrentItemCancelled) {
             if (audioSrc.includes('warning_5min') || audioSrc.includes('audio2')) {
-              await speakIndonesian('Hai guys, waktunya 5 menit lagi, siap-siap ya!', 0.96, 1.0);
+              await speakIndonesian('Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih.', 0.94, 1.0);
             } else if (audioSrc.includes('warning_40min') || audioSrc.includes('audio1')) {
-              await speakIndonesian('Waktu istirahat lu tuh udah habis. Ayo cepat masuk, jualan lagi!', 0.94, 1.0);
+              await speakIndonesian('Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.', 0.94, 1.0);
             } else if (audioSrc.includes('warning_overdue') || audioSrc.includes('audio3')) {
-              await speakIndonesian('Waktu lu tuh udah habis! Masuk ke floor sekarang juga!', 0.96, 1.0);
+              await speakIndonesian('Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya.', 0.94, 1.0);
             }
           }
         } catch {}
@@ -774,6 +829,37 @@ let currentActiveAnnouncement: string | null = null;
 let currentActiveItem: QueuedItem | null = null;
 let isCurrentItemCancelled = false;
 const recentlyCompleted = new Map<string, number>();
+const recentlyCheckedOutStaff = new Map<string, number>();
+
+export function getRecentlyCheckedOutMap(): Map<string, number> {
+  return recentlyCheckedOutStaff;
+}
+
+export function isStaffRecentlyCheckedOut(nip?: string, name?: string): boolean {
+  const now = Date.now();
+  if (nip) {
+    const cleanNip = String(nip).trim();
+    const t = recentlyCheckedOutStaff.get(cleanNip);
+    if (t && now - t < 3600000) return true;
+    const num = parseInt(cleanNip, 10);
+    if (!isNaN(num)) {
+      const tNum = recentlyCheckedOutStaff.get(String(num));
+      if (tNum && now - tNum < 3600000) return true;
+    }
+  }
+  if (name) {
+    const cleanName = name.toLowerCase().trim();
+    const t = recentlyCheckedOutStaff.get(cleanName);
+    if (t && now - t < 3600000) return true;
+    // Check partial matches
+    for (const [k, time] of recentlyCheckedOutStaff.entries()) {
+      if (now - time < 3600000 && (k.includes(cleanName) || cleanName.includes(k))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Active session status checker callback (registered by storage service)
 type ActiveSessionChecker = (nip?: string, sessionId?: string, name?: string) => boolean;
@@ -807,6 +893,10 @@ function abortActivePlaying() {
 export function cancelAnnouncementsForStaff(nip?: string, staffName?: string, sessionId?: string): void {
   const cleanNip = nip ? String(nip).trim() : '';
   const cleanName = staffName ? staffName.toLowerCase().trim() : '';
+  const now = Date.now();
+
+  if (cleanNip) recentlyCheckedOutStaff.set(cleanNip, now);
+  if (cleanName) recentlyCheckedOutStaff.set(cleanName, now);
 
   const matchesTarget = (t: StaffAnnouncementTarget) => {
     const matchId = sessionId && t.sessionId === sessionId;
@@ -1170,7 +1260,7 @@ async function executeAudioGroup(
   let active = getActiveTargets();
   if (active.length === 0) return;
 
-  // 1. Chime Tone
+  // 1. Station Chime Tone
   if (category === 'audio3') {
     await playUrgentOverdueChime();
   } else {
@@ -1180,32 +1270,48 @@ async function executeAudioGroup(
   active = getActiveTargets();
   if (active.length === 0) return;
 
-  // 2. Synthesize Personalized Names Intro
+  // 2. Synthesize Personalized Polite Names Intro
   const rawNames = active.map((t) => t.name);
   const combinedSpeechNames = formatMultipleNamesForSpeech(rawNames);
   const introPhrase =
     active.length === 1
-      ? `${combinedSpeechNames}, ada pesan buat kamu.`
-      : `${combinedSpeechNames}, ada pesan buat kalian.`;
+      ? `Kepada rekan ${combinedSpeechNames}, mohon perhatiannya.`
+      : `Kepada rekan-rekan ${combinedSpeechNames}, mohon perhatiannya.`;
 
   await speakIndonesian(introPhrase, 0.94, 1.0);
 
   active = getActiveTargets();
   if (active.length === 0) return;
-  await waitMs(300);
+  await waitMs(350);
 
   active = getActiveTargets();
   if (active.length === 0) return;
 
-  // 3. Play Store Sound / Recorded Audio Clip
-  const audioSrc = getCustomAudio(category) || AUDIO_FILE_PATHS[category];
-  await playAudioElement(audioSrc);
+  // 3. Official Refined AI Voice Message (Polite, Corporate Standard, Not Offensive)
+  let politeMessage = '';
+  if (category === 'audio2') {
+    politeMessage =
+      'Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih.';
+  } else if (category === 'audio1') {
+    politeMessage =
+      'Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.';
+  } else {
+    politeMessage =
+      'Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya.';
+  }
+
+  const customAudio = getCustomAudio(category);
+  if (!isAIVoiceMode() && customAudio) {
+    await playAudioElement(customAudio);
+  } else {
+    await speakIndonesian(politeMessage, 0.94, 1.0);
+  }
 
   active = getActiveTargets();
   if (active.length === 0) return;
   await waitMs(300);
 
-  // 4. Outro Chime
+  // 4. Station Outro Chime
   await playStationOutroChime();
 }
 
@@ -1340,17 +1446,12 @@ export function announceBreakOver(
 async function executeCustomCall(staffName: string, customMessage?: string): Promise<void> {
   await playStationChime();
   const cleanName = formatNameForSpeech(staffName);
-  await speakIndonesian(`${cleanName}, ada pesan buat kamu.`, 0.94, 1.0);
-  await waitMs(300);
+  await speakIndonesian(`Kepada rekan ${cleanName}, mohon perhatiannya.`, 0.94, 1.0);
+  await waitMs(350);
   if (customMessage) {
     await speakIndonesian(customMessage, 0.94, 1.0);
   } else {
-    const customAudio = getCustomAudio('audio1');
-    if (customAudio) {
-      await playAudioElement(customAudio);
-    } else {
-      await speakIndonesian('Waktu istirahat lu tuh udah habis. Ayo cepat masuk, jualan lagi!', 0.94, 1.0);
-    }
+    await speakIndonesian('Dimohon untuk segera menuju ke area kerja atau menemui Duty Manager. Terima kasih.', 0.94, 1.0);
   }
   await waitMs(300);
   await playStationOutroChime();

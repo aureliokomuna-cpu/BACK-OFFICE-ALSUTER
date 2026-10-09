@@ -32,6 +32,8 @@ import {
   testAudioVoiceNote,
   speakIndonesian,
   unlockAudio,
+  resetAllAudiosToAIVoice,
+  isAIVoiceMode,
 } from '../services/soundService';
 
 interface VoiceStudioModalProps {
@@ -56,23 +58,23 @@ const AUDIO_CONFIGS: AudioConfig[] = [
     title: 'Audio 2: Peringatan Sisa 5 Menit',
     badge: 'Menit ke-35',
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
-    expectedText: 'Hai guys, waktunya 5 menit lagi, siap-siap ya!',
+    expectedText: 'Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih.',
     timing: 'Diputar otomatis saat sisa waktu 5 menit lagi',
   },
   {
     key: 'audio1',
-    title: 'Audio 1: Waktu Tepat 40 Menit Habis',
+    title: 'Audio 1: Waktu Tepat 40 Menit Selesai',
     badge: 'Menit ke-40',
     badgeColor: 'bg-[#0033A0]/10 text-[#0033A0] border-[#0033A0]/20',
-    expectedText: 'Waktu istirahat lu tuh udah habis, ayo cepat masuk jualan lagi!',
+    expectedText: 'Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.',
     timing: 'Diputar otomatis pas waktu istirahat 40 menit habis',
   },
   {
     key: 'audio3',
-    title: 'Audio 3: Lewat Batas 40 Menit (Darurat)',
+    title: 'Audio 3: Melebihi Batas 40 Menit (Overdue)',
     badge: '> 40 Menit',
     badgeColor: 'bg-red-100 text-red-800 border-red-200',
-    expectedText: 'Waktu lu tuh udah habis, masuk ke floor sekarang!',
+    expectedText: 'Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya.',
     timing: 'Diputar saat melebihi batas 40 menit',
   },
 ];
@@ -95,6 +97,23 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({ isOpen, onCl
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+
+  const handleResetAllToAIVoice = async () => {
+    if (
+      confirm(
+        'Reset suara ke Suara AI Bahasa Indonesia yang sopan dan resmi di SEMUA device? Seluruh rekaman lama akan dinonaktifkan.'
+      )
+    ) {
+      const ok = await resetAllAudiosToAIVoice();
+      setIsLocked(false);
+      checkCustomAudios();
+      if (ok) {
+        alert(
+          'Suara berhasil direset ke Suara AI Resmi di semua device!\nPengumuman kini menggunakan kata-kata yang santun, elegan, dan profesional untuk pemeriksaan atasan.'
+        );
+      }
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -148,8 +167,10 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({ isOpen, onCl
   const handleTestTtsVoice = async () => {
     unlockAudio();
     setPlayingKey('tts_test');
-    // User requested format: "NAMA STAF, ADA PESAN BUAT KAMU"
-    await speakIndonesian('Prima Maelana, ada pesan buat kamu. Waktu istirahat lu tuh udah habis. Ayo cepat masuk, jualan lagi!');
+    // Official polite format: "Kepada rekan [Nama], mohon perhatiannya."
+    await speakIndonesian(
+      'Kepada rekan Prima Maelana, mohon perhatiannya. Pemberitahuan, waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.'
+    );
     setPlayingKey(null);
   };
 
@@ -286,7 +307,44 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({ isOpen, onCl
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6">
-            {/* Section 1: Upload File Audio Asli atau Rekam Sendiri */}
+          {/* Section 0: Master Reset Suara ke AI di Semua Device */}
+          <div className="bg-gradient-to-r from-blue-900 to-[#0033A0] rounded-2xl p-4.5 text-white shadow-md border border-blue-800 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#FFD100] text-blue-950 flex items-center justify-center font-black shrink-0 shadow-xs">
+                  <Sparkles className="w-5 h-5 text-blue-950" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white flex items-center gap-2">
+                    <span>Reset Suara ke AI Resmi (Semua Device)</span>
+                    <span className="text-[10px] font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">
+                      Rekomendasi Pimpinan
+                    </span>
+                  </h4>
+                  <p className="text-xs text-blue-100 mt-0.5">
+                    Gunakan Suara Sintesis AI dengan kata-kata santun, elegan, dan profesional. Cocok untuk inspeksi dan pemeriksaan atasan.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-white/10 gap-2 flex-wrap">
+              <div className="text-[11px] text-blue-200 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Kata pembuka resmi: <b>"Kepada rekan [Nama], mohon perhatiannya."</b></span>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetAllToAIVoice}
+                className="py-2 px-3.5 rounded-xl bg-[#FFD100] hover:bg-amber-300 active:scale-95 text-blue-950 font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-blue-950" />
+                <span>Reset Suara di Semua Device</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Section 1: Upload File Audio Asli atau Rekam Sendiri */}
           <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4.5 space-y-4">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -353,7 +411,7 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({ isOpen, onCl
             <div className="bg-white/90 border border-emerald-300/80 rounded-xl p-2.5 flex items-center gap-2 text-xs text-emerald-950 font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
               <span>
-                Kata pembuka resmi di depan: <b className="text-[#0033A0]">"[Nama Staf], ada pesan buat kamu."</b> (Diikuti pemutaran voice note).
+                Kata pembuka resmi di depan: <b className="text-[#0033A0]">"Kepada rekan [Nama Staf], mohon perhatiannya."</b>
               </span>
             </div>
 

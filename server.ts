@@ -33,7 +33,8 @@ function cleanStaleSessions(sessions: BreakSession[]): BreakSession[] {
   return sessions
     .filter((s) => s.startTime > sevenDaysAgo || s.endTime === null)
     .map((s) => {
-      if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
+      // Auto-close breaks exceeding 2 hours (120 minutes is the maximum daily break limit)
+      if (s.endTime === null && now - s.startTime > 2 * 3600 * 1000) {
         return {
           ...s,
           endTime: s.startTime + 40 * 60 * 1000,
@@ -100,11 +101,39 @@ function reconcileServerSessions(
     map.set(s.id, { ...s });
   }
 
+  // Pre-calculate latest completed break per employee
+  const employeeEndedTimes = new Map<string, number>();
+  for (const s of validLocal) {
+    if (s.endTime !== null) {
+      const cleanNip = String(s.nip).trim();
+      const cleanName = s.employeeName.trim().toLowerCase();
+      const prevNip = employeeEndedTimes.get(cleanNip) || 0;
+      if (s.endTime > prevNip) employeeEndedTimes.set(cleanNip, s.endTime);
+      const prevName = employeeEndedTimes.get(cleanName) || 0;
+      if (s.endTime > prevName) employeeEndedTimes.set(cleanName, s.endTime);
+    }
+  }
+
   for (const r of validRemote) {
     const l = map.get(r.id);
     if (!l) {
-      map.set(r.id, { ...r });
-      localUpdated = true;
+      // Check if employee has already checked out in a session that ended after or around this start time
+      const cleanNip = String(r.nip).trim();
+      const cleanName = r.employeeName ? r.employeeName.trim().toLowerCase() : '';
+      const endedAt = employeeEndedTimes.get(cleanNip) || employeeEndedTimes.get(cleanName) || 0;
+
+      if (r.endTime === null && endedAt >= r.startTime) {
+        // This employee already checked out! Do not add a ghost open break.
+        map.set(r.id, {
+          ...r,
+          endTime: endedAt,
+          durationMinutes: Math.max(1, Math.round((endedAt - r.startTime) / 60000)),
+        });
+        localUpdated = true;
+      } else {
+        map.set(r.id, { ...r });
+        localUpdated = true;
+      }
     } else {
       let merged = { ...l };
       let changed = false;
@@ -456,19 +485,118 @@ async function startServer() {
     res.json({ success: true, audios });
   });
 
+  // Reset Custom Audio to AI Voice across ALL devices
+  app.post('/api/custom-audio/reset-all', (req: Request, res: Response) => {
+    const audios = {
+      mode: 'ai_voice',
+      audio1: '',
+      audio2: '',
+      audio3: '',
+      lastUpdated: String(Date.now()),
+    };
+    saveCustomAudios(audios);
+
+    // Also delete any custom audio JSON locks if any
+    try {
+      const lockFile = path.join(DATA_DIR, 'custom_audio.json');
+      if (fs.existsSync(lockFile)) {
+        fs.writeFileSync(
+          lockFile,
+          JSON.stringify({ audio1: false, audio2: false, audio3: false, isLocked: false, mode: 'ai_voice' }, null, 2),
+          'utf-8'
+        );
+      }
+    } catch {}
+
+    const payload = JSON.stringify({
+      type: 'CUSTOM_AUDIO_RESET',
+      mode: 'ai_voice',
+      audios,
+      timestamp: Date.now(),
+    });
+
+    for (const client of sseClients) {
+      try {
+        client.write(`data: ${payload}\n\n`);
+      } catch {}
+    }
+
+    if (serverMqttClient && serverMqttClient.connected) {
+      try {
+        serverMqttClient.publish(
+          SYNC_TOPIC,
+          JSON.stringify({
+            type: 'CUSTOM_AUDIO_RESET',
+            mode: 'ai_voice',
+            audios,
+            updatedAt: Date.now(),
+            senderId: 'server_backend',
+          }),
+          { retain: false, qos: 1 }
+        );
+      } catch {}
+    }
+
+    res.json({ success: true, message: 'Suara berhasil direset ke mode Suara AI resmi di semua device.', audios });
+  });
+
   // Reset Custom Audio to default
   app.delete('/api/custom-audio/:type', (req: Request, res: Response) => {
     const { type } = req.params;
     const audios = loadCustomAudios();
     if (type === 'audio2') {
-      audios.audio2 = '/audio/warning_5min.mp3';
+      audios.audio2 = '';
     } else if (type === 'audio1') {
-      audios.audio1 = '/audio/warning_40min.mp3';
+      audios.audio1 = '';
     } else if (type === 'audio3') {
-      audios.audio3 = '/audio/warning_overdue.mp3';
+      audios.audio3 = '';
     }
     saveCustomAudios(audios);
     res.json({ success: true, audios });
+  });
+
+  // Force Checkout All Active Sessions (Bulk Checkout)
+  app.post('/api/sessions/checkout-all-active', (req: Request, res: Response) => {
+    const now = Date.now();
+    let endedCount = 0;
+    serverState.sessions = serverState.sessions.map((s) => {
+      if (s.endTime === null) {
+        endedCount++;
+        const durationMs = now - s.startTime;
+        const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
+        return {
+          ...s,
+          endTime: now,
+          durationMinutes,
+        };
+      }
+      return s;
+    });
+
+    saveState(serverState);
+
+    const endEvent = JSON.stringify({
+      type: 'STAFF_ENDED_BREAK',
+      nip: 'ALL',
+      employeeName: 'Semua Staf',
+      sessionId: 'ALL',
+      sessions: serverState.sessions,
+      lastUpdated: serverState.lastUpdated,
+      serverTime: Date.now(),
+      lastResetTime: serverState.lastResetTime || 0,
+    });
+    for (const client of sseClients) {
+      try {
+        client.write(`data: ${endEvent}\n\n`);
+      } catch {}
+    }
+
+    res.json({
+      success: true,
+      message: `${endedCount} sesi aktif berhasil diselesaikan / di-checkout.`,
+      endedCount,
+      sessions: serverState.sessions,
+    });
   });
 
   // Get Employees
@@ -679,7 +807,12 @@ async function startServer() {
         cleanNip &&
         (s.nip === cleanNip ||
           (!isNaN(parseInt(cleanNip, 10)) && parseInt(s.nip, 10) === parseInt(cleanNip, 10)));
-      const matchName = cleanName && s.employeeName && s.employeeName.trim().toLowerCase() === cleanName;
+      const matchName =
+        cleanName &&
+        s.employeeName &&
+        (s.employeeName.trim().toLowerCase() === cleanName ||
+          s.employeeName.trim().toLowerCase().includes(cleanName) ||
+          cleanName.includes(s.employeeName.trim().toLowerCase()));
 
       if ((matchId || matchNip || matchName) && s.endTime === null) {
         matchedCount++;

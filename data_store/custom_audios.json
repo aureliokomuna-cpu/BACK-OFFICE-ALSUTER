@@ -1,6 +1,7 @@
 {
-  "audio2": "/audio/warning_5min.mp3",
-  "audio1": "/audio/warning_40min.mp3",
-  "audio3": "/audio/warning_overdue.mp3",
-  "lastUpdated": 1727800000000
+  "mode": "ai_voice",
+  "audio1": "",
+  "audio2": "",
+  "audio3": "",
+  "lastUpdated": "1791529257443"
 }

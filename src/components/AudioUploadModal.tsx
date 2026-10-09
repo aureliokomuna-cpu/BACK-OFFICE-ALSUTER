@@ -17,6 +17,8 @@ import {
   playAudioElement,
   testAudioVoiceNote,
   unlockAudio,
+  resetAllAudiosToAIVoice,
+  isAIVoiceMode,
 } from '../services/soundService';
 
 interface AudioUploadModalProps {
@@ -203,8 +205,8 @@ export const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
                 }`}
               >
                 <span className="text-[10px] font-black uppercase text-[#0033A0] block">Menit ke-40</span>
-                <span className="text-xs font-black text-slate-900 block leading-tight">40 Menit Habis</span>
-                <span className="text-[10px] text-slate-500">(Jualan Lagi)</span>
+                <span className="text-xs font-black text-slate-900 block leading-tight">40 Menit Selesai</span>
+                <span className="text-[10px] text-slate-500">(Tepat Waktu)</span>
               </button>
 
               <button
@@ -218,21 +220,46 @@ export const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
               >
                 <span className="text-[10px] font-black uppercase text-red-700 block">&gt; 40 Menit</span>
                 <span className="text-xs font-black text-slate-900 block leading-tight">Overdue</span>
-                <span className="text-[10px] text-slate-500">(Darurat)</span>
+                <span className="text-[10px] text-slate-500">(Melebihi Waktu)</span>
               </button>
             </div>
           </div>
 
-          {/* Expected speech guide */}
-          <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-3.5 text-xs text-amber-950 flex items-start gap-2.5">
-            <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          {/* Reset to AI Voice card */}
+          <div className="bg-gradient-to-r from-blue-900 to-[#0033A0] rounded-2xl p-3.5 text-white flex items-center justify-between gap-3">
             <div>
-              <span className="font-bold block text-amber-900">Kata-kata dalam rekaman:</span>
+              <span className="text-xs font-bold block">Reset Suara ke AI Resmi</span>
+              <span className="text-[11px] text-blue-200 block">Kembalikan ke Suara AI Bahasa Indonesia yang ramah &amp; santun</span>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                if (confirm('Reset suara ke Suara AI Resmi di semua device?')) {
+                  await resetAllAudiosToAIVoice();
+                  setSuccessMessage('Suara berhasil direset ke Suara AI Resmi di semua device!');
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl bg-[#FFD100] text-blue-950 font-black text-xs hover:bg-amber-300 transition-all cursor-pointer shrink-0 shadow-xs active:scale-95 flex items-center gap-1"
+            >
+              <RefreshCw className="w-3 h-3 text-blue-950" />
+              <span>Reset Semua</span>
+            </button>
+          </div>
+
+          {/* Expected speech guide */}
+          <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-3.5 text-xs text-blue-950 flex items-start gap-2.5">
+            <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block text-blue-900">Format Bahasa Resmi &amp; Sopan:</span>
               <p className="italic text-slate-700 mt-0.5">
-                "Hai guys, waktunya 5 menit lagi, siap-siap ya!"
+                {selectedType === 'audio2'
+                  ? '"Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih."'
+                  : selectedType === 'audio1'
+                  ? '"Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali."'
+                  : '"Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya."'}
               </p>
-              <p className="text-[11px] text-amber-800 mt-1">
-                📌 Didahului panggilan otomatis: <em>"[Nama Staf], ada pesan buat kamu."</em>
+              <p className="text-[11px] text-blue-800 mt-1">
+                📌 Didahului panggilan resmi: <em>"Kepada rekan [Nama Staf], mohon perhatiannya."</em>
               </p>
             </div>
           </div>

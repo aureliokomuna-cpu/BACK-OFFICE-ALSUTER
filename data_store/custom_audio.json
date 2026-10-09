@@ -1,7 +1,7 @@
 {
-  "audio1": true,
+  "audio1": false,
   "audio2": false,
   "audio3": false,
-  "lastUpdated": 1790852025675,
-  "isLocked": true
+  "isLocked": false,
+  "mode": "ai_voice"
 }

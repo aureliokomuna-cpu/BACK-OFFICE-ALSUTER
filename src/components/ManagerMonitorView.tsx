@@ -15,6 +15,7 @@ import {
   markWarningPlayed,
   markOverduePlayed,
   subscribeDataChanges,
+  subscribeToStorage,
   getSynchronizedNow,
   subscribeAutoRefresh,
   fetchServerState,
@@ -68,13 +69,22 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     currentTitle: null,
   });
   const localAnnouncedAlertsRef = useRef<Set<string>>(new Set());
+  const lastOverdueCallTimeRef = useRef<Map<string, number>>(new Map());
 
   // Multi-device central real-time subscription
   useEffect(() => {
-    return subscribeDataChanges(() => {
+    const unsubData = subscribeDataChanges(() => {
       setSessions(getTodaySessions());
       setEmployees(getEmployees());
     });
+    const unsubStorage = subscribeToStorage(() => {
+      setSessions(getTodaySessions());
+      setEmployees(getEmployees());
+    });
+    return () => {
+      unsubData();
+      unsubStorage();
+    };
   }, []);
 
   // 10-second automatic authoritative refresh countdown subscription
@@ -101,8 +111,8 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
       setSessions(currentSessions);
       setEmployees(getEmployees());
 
-      // Auto-broadcast when staff reach 35m, 40m, or 41m
-      // Groups staff in the same minute / tick into one unified announcement per category!
+      // Auto-broadcast when staff reach 35m, 40m, or 41m (and repeat reminders every 3 minutes if overdue)
+      // Groups staff in the same minute / tick into one unified polite announcement per category!
       if (autoAnnounce) {
         const group5m: BreakSession[] = [];
         const group40m: BreakSession[] = [];
@@ -141,17 +151,18 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
             }
 
             // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas, up to 120m)
-            const warnOverdueKey = `mgr_overdue_${s.id}`;
-            if (
-              elapsedSec >= 41 * 60 &&
-              elapsedSec < 120 * 60 &&
-              !s.overduePlayed &&
-              !localAnnouncedAlertsRef.current.has(warnOverdueKey)
-            ) {
-              localAnnouncedAlertsRef.current.add(warnOverdueKey);
-              s.overduePlayed = true;
-              markOverduePlayed(s.id);
-              groupOverdue.push(s);
+            // Periodic repeat reminder: calls at minute 41, and then repeats every 3 minutes if still overdue!
+            if (elapsedSec >= 41 * 60 && elapsedSec < 120 * 60) {
+              const lastOverdueTime = lastOverdueCallTimeRef.current.get(s.id) || 0;
+              const hasNeverBeenCalledLocally = !localAnnouncedAlertsRef.current.has(`mgr_overdue_${s.id}`);
+              // Trigger immediately at minute 41 or repeat every 3 minutes (180,000ms)
+              if (hasNeverBeenCalledLocally || (now - lastOverdueTime >= 180000)) {
+                localAnnouncedAlertsRef.current.add(`mgr_overdue_${s.id}`);
+                lastOverdueCallTimeRef.current.set(s.id, now);
+                s.overduePlayed = true;
+                markOverduePlayed(s.id);
+                groupOverdue.push(s);
+              }
             }
           }
         });
@@ -268,7 +279,8 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
   const handleSpeakerCall = async (staffName: string, nip: string, department?: string, jobTitle?: string, sessionId?: string) => {
     setCallingNip(nip);
-    await playAudio1Sudah40Menit(staffName, nip, sessionId, jobTitle, department);
+    unlockAudio();
+    await playAudio1Sudah40Menit(staffName, nip, sessionId, jobTitle, department, true);
     setCallingNip(null);
   };
 
@@ -281,12 +293,13 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
     department?: string
   ) => {
     setCallingNip(`${nip}_${type}`);
+    unlockAudio();
     if (type === 'audio1') {
-      await playAudio1Sudah40Menit(staffName, nip, sessionId, jobTitle, department);
+      await playAudio1Sudah40Menit(staffName, nip, sessionId, jobTitle, department, true);
     } else if (type === 'audio2') {
-      await playAudio2Sisa5Menit(staffName, nip, sessionId, jobTitle, department);
+      await playAudio2Sisa5Menit(staffName, nip, sessionId, jobTitle, department, true);
     } else {
-      await playAudio3UdahLewat40Menit(staffName, nip, sessionId, jobTitle, department);
+      await playAudio3UdahLewat40Menit(staffName, nip, sessionId, jobTitle, department, true);
     }
     setCallingNip(null);
   };
@@ -313,9 +326,17 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
 
   const confirmForceEndBreak = () => {
     if (!pendingEndSession) return;
-    endStaffBreak(pendingEndSession.nip, pendingEndSession.sessionId, pendingEndSession.name);
-    cancelAnnouncementsForStaff(pendingEndSession.nip, pendingEndSession.name, pendingEndSession.sessionId);
-    setSessions(getTodaySessions());
+    const { nip, sessionId, name } = pendingEndSession;
+    endStaffBreak(nip, sessionId, name);
+    cancelAnnouncementsForStaff(nip, name, sessionId);
+    setSessions((prev) =>
+      prev.map((s) => {
+        if ((sessionId && s.id === sessionId) || (nip && s.nip === nip) || (name && s.employeeName === name)) {
+          return { ...s, endTime: Date.now(), durationMinutes: Math.max(1, Math.round((Date.now() - s.startTime) / 60000)) };
+        }
+        return s;
+      })
+    );
     setPendingEndSession(null);
     onRefreshNeeded();
   };

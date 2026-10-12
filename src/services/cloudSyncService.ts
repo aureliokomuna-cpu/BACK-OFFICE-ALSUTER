@@ -178,7 +178,7 @@ class CloudSyncService {
     this.lastPublishedAt = Date.now();
 
     try {
-      this.client?.publish(SYNC_TOPIC, JSON.stringify(payload), { retain: true, qos: 1 });
+      this.client?.publish(SYNC_TOPIC, JSON.stringify(payload), { retain: false, qos: 1 });
     } catch (e) {
       console.warn('[CloudSync] Publish failed:', e);
     }

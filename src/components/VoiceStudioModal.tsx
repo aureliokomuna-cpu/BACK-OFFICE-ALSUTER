@@ -58,7 +58,7 @@ const AUDIO_CONFIGS: AudioConfig[] = [
     title: 'Audio 2: Peringatan Sisa 5 Menit',
     badge: 'Menit ke-35',
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
-    expectedText: 'Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih.',
+    expectedText: 'Pemberitahuan. Waktu istirahat Anda tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali ke area tugas. Terima kasih atas kerja samanya.',
     timing: 'Diputar otomatis saat sisa waktu 5 menit lagi',
   },
   {
@@ -66,7 +66,7 @@ const AUDIO_CONFIGS: AudioConfig[] = [
     title: 'Audio 1: Waktu Tepat 40 Menit Selesai',
     badge: 'Menit ke-40',
     badgeColor: 'bg-[#0033A0]/10 text-[#0033A0] border-[#0033A0]/20',
-    expectedText: 'Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.',
+    expectedText: 'Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon kesediaannya untuk segera kembali bertugas melayani pelanggan. Terima kasih dan selamat beraktivitas kembali.',
     timing: 'Diputar otomatis pas waktu istirahat 40 menit habis',
   },
   {
@@ -74,7 +74,7 @@ const AUDIO_CONFIGS: AudioConfig[] = [
     title: 'Audio 3: Melebihi Batas 40 Menit (Overdue)',
     badge: '> 40 Menit',
     badgeColor: 'bg-red-100 text-red-800 border-red-200',
-    expectedText: 'Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya.',
+    expectedText: 'Pemberitahuan. Waktu istirahat Anda telah melebihi batas empat puluh menit yang ditentukan. Dimohon dengan hormat untuk segera kembali ke area kerja masing-masing. Terima kasih atas pengertian dan kerja samanya.',
     timing: 'Diputar saat melebihi batas 40 menit',
   },
 ];
@@ -169,7 +169,7 @@ export const VoiceStudioModal: React.FC<VoiceStudioModalProps> = ({ isOpen, onCl
     setPlayingKey('tts_test');
     // Official polite format: "Kepada rekan [Nama], mohon perhatiannya."
     await speakIndonesian(
-      'Kepada rekan Prima Maelana, mohon perhatiannya. Pemberitahuan, waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.'
+      'Kepada rekan Prima Maelana, mohon perhatiannya. Pemberitahuan, waktu istirahat empat puluh menit telah selesai. Mohon kesediaannya untuk segera kembali bertugas melayani pelanggan. Terima kasih dan selamat beraktivitas kembali.'
     );
     setPlayingKey(null);
   };

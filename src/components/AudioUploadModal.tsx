@@ -253,10 +253,10 @@ export const AudioUploadModal: React.FC<AudioUploadModalProps> = ({
               <span className="font-bold block text-blue-900">Format Bahasa Resmi &amp; Sopan:</span>
               <p className="italic text-slate-700 mt-0.5">
                 {selectedType === 'audio2'
-                  ? '"Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih."'
+                  ? '"Pemberitahuan. Waktu istirahat Anda tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali ke area tugas. Terima kasih atas kerja samanya."'
                   : selectedType === 'audio1'
-                  ? '"Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali."'
-                  : '"Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya."'}
+                  ? '"Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon kesediaannya untuk segera kembali bertugas melayani pelanggan. Terima kasih dan selamat beraktivitas kembali."'
+                  : '"Pemberitahuan. Waktu istirahat Anda telah melebihi batas empat puluh menit yang ditentukan. Dimohon dengan hormat untuk segera kembali ke area kerja masing-masing. Terima kasih atas pengertian dan kerja samanya."'}
               </p>
               <p className="text-[11px] text-blue-800 mt-1">
                 📌 Didahului panggilan resmi: <em>"Kepada rekan [Nama Staf], mohon perhatiannya."</em>

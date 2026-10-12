@@ -253,6 +253,8 @@ export function subscribeDataChanges(listener: ChangeListener): () => void {
   };
 }
 
+export const subscribeToStorage = subscribeDataChanges;
+
 function notifySubscribers() {
   changeListeners.forEach((l) => {
     try {
@@ -323,18 +325,19 @@ loadInitialCache();
 
 // Register session checker so sound queue NEVER calls staff who already checked out!
 registerActiveSessionChecker((nip, sessionId, name) => {
-  if (isStaffRecentlyCheckedOut(nip, name)) {
-    return false;
-  }
   const all = getAllSessions();
   // 1. Explicit Session ID check
   if (sessionId) {
     const s = all.find((x) => x.id === sessionId);
-    if (s && s.endTime !== null) {
-      return false;
+    if (s) {
+      return s.endTime === null;
     }
   }
-  // 2. Staff NIP check
+  // 2. Immediate checkout check (within 20s TTL)
+  if (isStaffRecentlyCheckedOut(nip, name)) {
+    return false;
+  }
+  // 3. Staff NIP check
   if (nip) {
     const cleanNip = String(nip).trim();
     const userSessions = all.filter(
@@ -346,11 +349,10 @@ registerActiveSessionChecker((nip, sessionId, name) => {
       // Sort by start time descending (most recent session first)
       userSessions.sort((a, b) => b.startTime - a.startTime);
       const latest = userSessions[0];
-      // If the latest session has already ended, they are not on break!
       return latest.endTime === null;
     }
   }
-  // 3. Staff Name check
+  // 4. Staff Name check
   if (name) {
     const cleanName = name.toLowerCase().trim();
     const nameSessions = all.filter(
@@ -433,8 +435,8 @@ export function reconcileSessionCollection(
       // Full authoritative server snapshot
       for (const remote of incomingSessions) {
         if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
-        // Auto-close abandoned breaks > 2 hours (120 minutes max limit)
-        if (remote.endTime === null && now - remote.startTime > 2 * 3600 * 1000) {
+        // Auto-close abandoned breaks > 50 minutes (40m max break + 10m grace period)
+        if (remote.endTime === null && now - remote.startTime > 50 * 60 * 1000) {
           sessionMap.set(remote.id, {
             ...remote,
             endTime: remote.startTime + 40 * 60 * 1000,
@@ -476,8 +478,8 @@ export function reconcileSessionCollection(
     // Peer-to-peer / MQTT merge
     for (const s of memorySessions) {
       if (localLastResetTime > 0 && s.startTime < localLastResetTime) continue;
-      // Auto-close abandoned breaks > 16 hours
-      if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
+      // Auto-close abandoned breaks > 50 minutes
+      if (s.endTime === null && now - s.startTime > 50 * 60 * 1000) {
         sessionMap.set(s.id, {
           ...s,
           endTime: s.startTime + 40 * 60 * 1000,
@@ -488,12 +490,36 @@ export function reconcileSessionCollection(
       sessionMap.set(s.id, s);
     }
 
+    // Pre-calculate latest completed break per employee
+    const employeeEndedTimes = new Map<string, number>();
+    for (const s of sessionMap.values()) {
+      if (s.endTime !== null) {
+        const cleanNip = String(s.nip).trim();
+        const cleanName = s.employeeName ? s.employeeName.trim().toLowerCase() : '';
+        const prevNip = employeeEndedTimes.get(cleanNip) || 0;
+        if (s.endTime > prevNip) employeeEndedTimes.set(cleanNip, s.endTime);
+        const prevName = employeeEndedTimes.get(cleanName) || 0;
+        if (s.endTime > prevName) employeeEndedTimes.set(cleanName, s.endTime);
+      }
+    }
+
     for (const remote of incomingSessions) {
       if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
 
+      const cleanNip = String(remote.nip).trim();
+      const cleanName = remote.employeeName ? remote.employeeName.trim().toLowerCase() : '';
+      const endedAt = employeeEndedTimes.get(cleanNip) || employeeEndedTimes.get(cleanName) || 0;
+
       const local = sessionMap.get(remote.id);
       if (!local) {
-        if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
+        if (remote.endTime === null && endedAt >= remote.startTime) {
+          // Staff has already checked out in a session that finished after or at this start time!
+          sessionMap.set(remote.id, {
+            ...remote,
+            endTime: endedAt,
+            durationMinutes: Math.max(1, Math.round((endedAt - remote.startTime) / 60000)),
+          });
+        } else if (remote.endTime === null && now - remote.startTime > 50 * 60 * 1000) {
           sessionMap.set(remote.id, {
             ...remote,
             endTime: remote.startTime + 40 * 60 * 1000,
@@ -511,6 +537,9 @@ export function reconcileSessionCollection(
         } else if (remote.endTime !== null && local.endTime === null) {
           merged.endTime = remote.endTime;
           merged.durationMinutes = remote.durationMinutes;
+        } else if (remote.endTime === null && endedAt >= remote.startTime) {
+          merged.endTime = endedAt;
+          merged.durationMinutes = Math.max(1, Math.round((endedAt - remote.startTime) / 60000));
         }
 
         if (Math.abs(remote.startTime - local.startTime) > 1000) {

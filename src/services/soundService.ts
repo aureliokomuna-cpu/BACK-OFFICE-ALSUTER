@@ -382,6 +382,11 @@ export function setVoiceLocked(locked: boolean): void {
 }
 
 export function getCustomAudio(type: 'audio1' | 'audio2' | 'audio3'): string | null {
+  // If AI Voice Mode is active (default), always return null so natural speech synthesis is used!
+  if (isAIVoiceMode()) {
+    return null;
+  }
+
   try {
     const key =
       type === 'audio1'
@@ -501,11 +506,11 @@ export function playAudioElement(audioSrc: string): Promise<void> {
         try {
           if (!isCurrentItemCancelled) {
             if (audioSrc.includes('warning_5min') || audioSrc.includes('audio2')) {
-              await speakIndonesian('Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih.', 0.94, 1.0);
+              await speakIndonesian('Pemberitahuan. Waktu istirahat Anda tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali ke area tugas. Terima kasih atas kerja samanya.', 0.94, 1.0);
             } else if (audioSrc.includes('warning_40min') || audioSrc.includes('audio1')) {
-              await speakIndonesian('Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.', 0.94, 1.0);
+              await speakIndonesian('Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon kesediaannya untuk segera kembali bertugas melayani pelanggan. Terima kasih dan selamat beraktivitas kembali.', 0.94, 1.0);
             } else if (audioSrc.includes('warning_overdue') || audioSrc.includes('audio3')) {
-              await speakIndonesian('Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya.', 0.94, 1.0);
+              await speakIndonesian('Pemberitahuan. Waktu istirahat Anda telah melebihi batas empat puluh menit yang ditentukan. Dimohon dengan hormat untuk segera kembali ke area kerja masing-masing. Terima kasih atas pengertian dan kerja samanya.', 0.94, 1.0);
             }
           }
         } catch {}
@@ -837,23 +842,26 @@ export function getRecentlyCheckedOutMap(): Map<string, number> {
 
 export function isStaffRecentlyCheckedOut(nip?: string, name?: string): boolean {
   const now = Date.now();
+  // Safe TTL: only suppress immediate race conditions (within 20s of checkout)
+  // NEVER suppresses active breaks from hours ago or a newly started session!
+  const CHECKOUT_SUPPRESSION_TTL_MS = 20000;
   if (nip) {
     const cleanNip = String(nip).trim();
     const t = recentlyCheckedOutStaff.get(cleanNip);
-    if (t && now - t < 3600000) return true;
+    if (t && now - t < CHECKOUT_SUPPRESSION_TTL_MS) return true;
     const num = parseInt(cleanNip, 10);
     if (!isNaN(num)) {
       const tNum = recentlyCheckedOutStaff.get(String(num));
-      if (tNum && now - tNum < 3600000) return true;
+      if (tNum && now - tNum < CHECKOUT_SUPPRESSION_TTL_MS) return true;
     }
   }
   if (name) {
     const cleanName = name.toLowerCase().trim();
     const t = recentlyCheckedOutStaff.get(cleanName);
-    if (t && now - t < 3600000) return true;
+    if (t && now - t < CHECKOUT_SUPPRESSION_TTL_MS) return true;
     // Check partial matches
     for (const [k, time] of recentlyCheckedOutStaff.entries()) {
-      if (now - time < 3600000 && (k.includes(cleanName) || cleanName.includes(k))) {
+      if (now - time < CHECKOUT_SUPPRESSION_TTL_MS && (k.includes(cleanName) || cleanName.includes(k))) {
         return true;
       }
     }
@@ -1077,15 +1085,17 @@ export function enqueueAnnouncement(
  */
 export function playAudioGroup(
   category: 'audio1' | 'audio2' | 'audio3',
-  rawTargets: StaffAnnouncementTarget[]
+  rawTargets: StaffAnnouncementTarget[],
+  force: boolean = false
 ): Promise<void> {
   const targets = rawTargets.filter((t) => t && t.name && t.name.trim().length > 0);
   if (targets.length === 0) return Promise.resolve();
 
   const now = Date.now();
 
-  // Filter out any target who has ALREADY checked out
+  // Filter out any target who has ALREADY checked out (unless forced manual call by manager)
   const activeTargets = targets.filter((t) => {
+    if (force) return true;
     if (activeSessionChecker) {
       return activeSessionChecker(t.nip, t.sessionId, t.name);
     }
@@ -1099,10 +1109,10 @@ export function playAudioGroup(
 
   const categoryLabel =
     category === 'audio1'
-      ? 'Waktu 40 Menit Habis'
+      ? 'Waktu 40 Menit Selesai'
       : category === 'audio2'
       ? 'Peringatan 5 Menit'
-      : 'Lewat 40 Menit';
+      : 'Pemberitahuan Melebihi Waktu';
 
   // 1. COALESCING: Check if an announcement for the same category is ALREADY waiting in queue (within last 60s)
   const waitingItem = audioQueue.find((q) => q.category === category && now - q.timestamp < 60000);
@@ -1127,9 +1137,10 @@ export function playAudioGroup(
   // 2. Otherwise enqueue new group announcement item
   const dedupeKey = `grp_${category}_${activeTargets.map((x) => x.sessionId || x.nip || x.name).join('_')}`;
 
-  // Check if identical call finished recently
+  // Check if identical call finished recently (unless forced manual call by manager)
   const lastFinished = recentlyCompleted.get(dedupeKey);
-  if (lastFinished && now - lastFinished < 180000) {
+  const dedupeWindowMs = category === 'audio3' ? 60000 : 120000;
+  if (!force && lastFinished && now - lastFinished < dedupeWindowMs) {
     return Promise.resolve();
   }
 
@@ -1291,13 +1302,13 @@ async function executeAudioGroup(
   let politeMessage = '';
   if (category === 'audio2') {
     politeMessage =
-      'Pemberitahuan. Waktu istirahat tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali bertugas. Terima kasih.';
+      'Pemberitahuan. Waktu istirahat Anda tersisa lima menit lagi. Mohon dapat bersiap-siap untuk kembali ke area tugas. Terima kasih atas kerja samanya.';
   } else if (category === 'audio1') {
     politeMessage =
-      'Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon untuk segera kembali ke area tugas masing-masing. Terima kasih dan selamat beraktivitas kembali.';
+      'Pemberitahuan. Waktu istirahat empat puluh menit telah selesai. Mohon kesediaannya untuk segera kembali bertugas melayani pelanggan. Terima kasih dan selamat beraktivitas kembali.';
   } else {
     politeMessage =
-      'Pemberitahuan. Waktu istirahat telah melebihi batas waktu yang ditentukan. Dimohon untuk segera kembali bertugas di area kerja masing-masing. Terima kasih atas kerja samanya.';
+      'Pemberitahuan. Waktu istirahat Anda telah melebihi batas empat puluh menit yang ditentukan. Dimohon dengan hormat untuk segera kembali ke area kerja masing-masing. Terima kasih atas pengertian dan kerja samanya.';
   }
 
   const customAudio = getCustomAudio(category);
@@ -1324,7 +1335,8 @@ export function playAudio1Sudah40Menit(
   nipOrJobTitle?: string,
   sessionIdOrDept?: string,
   jobTitle?: string,
-  department?: string
+  department?: string,
+  force: boolean = false
 ): Promise<void> {
   let nip = nipOrJobTitle;
   let sessionId = sessionIdOrDept;
@@ -1350,7 +1362,7 @@ export function playAudio1Sudah40Menit(
       jobTitle: effectiveJob,
       department: effectiveDept,
     },
-  ]);
+  ], force);
 }
 
 /**
@@ -1362,7 +1374,8 @@ export function playAudio2Sisa5Menit(
   nipOrJobTitle?: string,
   sessionIdOrDept?: string,
   jobTitle?: string,
-  department?: string
+  department?: string,
+  force: boolean = false
 ): Promise<void> {
   let nip = nipOrJobTitle;
   let sessionId = sessionIdOrDept;
@@ -1388,7 +1401,7 @@ export function playAudio2Sisa5Menit(
       jobTitle: effectiveJob,
       department: effectiveDept,
     },
-  ]);
+  ], force);
 }
 
 /**
@@ -1400,7 +1413,8 @@ export function playAudio3UdahLewat40Menit(
   nipOrJobTitle?: string,
   sessionIdOrDept?: string,
   jobTitle?: string,
-  department?: string
+  department?: string,
+  force: boolean = false
 ): Promise<void> {
   let nip = nipOrJobTitle;
   let sessionId = sessionIdOrDept;
@@ -1426,7 +1440,7 @@ export function playAudio3UdahLewat40Menit(
       jobTitle: effectiveJob,
       department: effectiveDept,
     },
-  ]);
+  ], force);
 }
 
 // Backward-compatible triggers

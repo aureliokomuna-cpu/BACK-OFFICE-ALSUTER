@@ -33,8 +33,8 @@ function cleanStaleSessions(sessions: BreakSession[]): BreakSession[] {
   return sessions
     .filter((s) => s.startTime > sevenDaysAgo || s.endTime === null)
     .map((s) => {
-      // Auto-close breaks exceeding 2 hours (120 minutes is the maximum daily break limit)
-      if (s.endTime === null && now - s.startTime > 2 * 3600 * 1000) {
+      // Auto-close breaks exceeding 50 minutes (standard break is 40m, prevent ghost active sessions)
+      if (s.endTime === null && now - s.startTime > 50 * 60 * 1000) {
         return {
           ...s,
           endTime: s.startTime + 40 * 60 * 1000,
@@ -259,7 +259,7 @@ function saveState(state: ServerState) {
             lastResetTime: state.lastResetTime || 0,
             senderId: 'server_backend',
           }),
-          { retain: true, qos: 1 }
+          { retain: false, qos: 1 }
         );
       } catch {}
     }

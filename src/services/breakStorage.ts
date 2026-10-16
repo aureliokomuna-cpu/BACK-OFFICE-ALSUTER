@@ -8,6 +8,7 @@ import {
   registerActiveSessionChecker,
   cancelAnnouncementsForStaff,
   isStaffRecentlyCheckedOut,
+  getRecentlyCheckedOutMap,
 } from './soundService';
 
 const STORAGE_KEYS = {
@@ -435,8 +436,21 @@ export function reconcileSessionCollection(
       // Full authoritative server snapshot
       for (const remote of incomingSessions) {
         if (localLastResetTime > 0 && remote.startTime < localLastResetTime) continue;
-        // Auto-close abandoned breaks > 50 minutes (40m max break + 10m grace period)
-        if (remote.endTime === null && now - remote.startTime > 50 * 60 * 1000) {
+        const cleanNip = String(remote.nip).trim();
+        const cleanName = remote.employeeName ? remote.employeeName.trim().toLowerCase() : '';
+
+        // If employee already checked out locally recently, never resurrect a ghost open session!
+        if (remote.endTime === null && isStaffRecentlyCheckedOut(cleanNip, cleanName)) {
+          sessionMap.set(remote.id, {
+            ...remote,
+            endTime: now,
+            durationMinutes: Math.max(1, Math.round((now - remote.startTime) / 60000)),
+          });
+          continue;
+        }
+
+        // Only auto-close truly abandoned breaks > 16 hours
+        if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
           sessionMap.set(remote.id, {
             ...remote,
             endTime: remote.startTime + 40 * 60 * 1000,
@@ -478,8 +492,8 @@ export function reconcileSessionCollection(
     // Peer-to-peer / MQTT merge
     for (const s of memorySessions) {
       if (localLastResetTime > 0 && s.startTime < localLastResetTime) continue;
-      // Auto-close abandoned breaks > 50 minutes
-      if (s.endTime === null && now - s.startTime > 50 * 60 * 1000) {
+      // Only auto-close truly abandoned breaks > 16 hours
+      if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
         sessionMap.set(s.id, {
           ...s,
           endTime: s.startTime + 40 * 60 * 1000,
@@ -512,14 +526,15 @@ export function reconcileSessionCollection(
 
       const local = sessionMap.get(remote.id);
       if (!local) {
-        if (remote.endTime === null && endedAt >= remote.startTime) {
-          // Staff has already checked out in a session that finished after or at this start time!
+        if (remote.endTime === null && (endedAt >= remote.startTime || isStaffRecentlyCheckedOut(cleanNip, cleanName))) {
+          // Staff has already checked out! Do not add a ghost open break.
+          const effectiveEnd = endedAt >= remote.startTime ? endedAt : now;
           sessionMap.set(remote.id, {
             ...remote,
-            endTime: endedAt,
-            durationMinutes: Math.max(1, Math.round((endedAt - remote.startTime) / 60000)),
+            endTime: effectiveEnd,
+            durationMinutes: Math.max(1, Math.round((effectiveEnd - remote.startTime) / 60000)),
           });
-        } else if (remote.endTime === null && now - remote.startTime > 50 * 60 * 1000) {
+        } else if (remote.endTime === null && now - remote.startTime > 16 * 3600 * 1000) {
           sessionMap.set(remote.id, {
             ...remote,
             endTime: remote.startTime + 40 * 60 * 1000,
@@ -551,6 +566,22 @@ export function reconcileSessionCollection(
         merged.overduePlayed = local.overduePlayed || remote.overduePlayed;
 
         sessionMap.set(remote.id, merged);
+      }
+    }
+  }
+
+  // Deduplicate: Enforce at most 1 active break per employee (most recent wins)
+  const activeStaffNips = new Set<string>();
+  const allListSorted = Array.from(sessionMap.values()).sort((a, b) => b.startTime - a.startTime);
+  for (const s of allListSorted) {
+    if (s.endTime === null) {
+      const cleanNip = String(s.nip).trim();
+      if (activeStaffNips.has(cleanNip)) {
+        s.endTime = s.startTime + 40 * 60 * 1000;
+        s.durationMinutes = 40;
+        sessionMap.set(s.id, s);
+      } else {
+        activeStaffNips.add(cleanNip);
       }
     }
   }
@@ -711,8 +742,34 @@ export function initRealtimeSync(): void {
   if (syncChannel) {
     syncChannel.onmessage = (event) => {
       const msg = event.data;
+      if (msg && msg.type === 'STAFF_STARTED_BREAK') {
+        if (msg.session) {
+          reconcileSessionCollection([msg.session], 0, true);
+        } else {
+          fetchServerState(true);
+        }
+        return;
+      }
       if (msg && msg.type === 'STAFF_ENDED_BREAK') {
         cancelAnnouncementsForStaff(msg.nip, msg.employeeName, msg.sessionId);
+        const now = msg.timestamp || Date.now();
+        // Immediately end break in memory
+        memorySessions = memorySessions.map((s) => {
+          const matchId = msg.sessionId && s.id === msg.sessionId;
+          const matchNip = msg.nip && (s.nip === msg.nip || parseInt(s.nip, 10) === parseInt(msg.nip, 10));
+          const matchName = msg.employeeName && s.employeeName && s.employeeName.trim().toLowerCase() === msg.employeeName.trim().toLowerCase();
+          if ((matchId || matchNip || matchName) && s.endTime === null) {
+            return {
+              ...s,
+              endTime: now,
+              durationMinutes: Math.max(1, Math.round((now - s.startTime) / 60000)),
+            };
+          }
+          return s;
+        });
+        notifySubscribers();
+        fetchServerState(true);
+        return;
       }
       fetchServerState(true);
     };
@@ -733,8 +790,34 @@ export function initRealtimeSync(): void {
             applyServerCustomAudios(data.audios);
             return;
           }
+          if (data && data.type === 'STAFF_STARTED_BREAK') {
+            if (data.session) {
+              reconcileSessionCollection([data.session], data.lastResetTime || 0, true);
+            }
+            if (Array.isArray(data.sessions)) {
+              reconcileSessionCollection(data.sessions, data.lastResetTime || 0, true);
+            }
+            notifySubscribers();
+            return;
+          }
           if (data && data.type === 'STAFF_ENDED_BREAK') {
             cancelAnnouncementsForStaff(data.nip, data.employeeName, data.sessionId);
+            const now = data.serverTime || Date.now();
+            // Immediate local update
+            memorySessions = memorySessions.map((s) => {
+              const matchId = data.sessionId && s.id === data.sessionId;
+              const matchNip = data.nip && (s.nip === data.nip || parseInt(s.nip, 10) === parseInt(data.nip, 10));
+              const matchName = data.employeeName && s.employeeName && s.employeeName.trim().toLowerCase() === data.employeeName.trim().toLowerCase();
+              if ((matchId || matchNip || matchName) && s.endTime === null) {
+                return {
+                  ...s,
+                  endTime: now,
+                  durationMinutes: Math.max(1, Math.round((now - s.startTime) / 60000)),
+                };
+              }
+              return s;
+            });
+            notifySubscribers();
             if (Array.isArray(data.sessions)) {
               reconcileSessionCollection(data.sessions, data.lastResetTime || 0, true);
             }
@@ -1002,26 +1085,18 @@ export function getBreakSessionLabel(sessionNumber: number): string {
 export function startStaffBreak(employee: Employee): { success: boolean; message: string; session?: BreakSession } {
   const today = getTodayDateString();
   const summary = getStaffDailySummary(employee.nip, today);
+  const now = getSynchronizedNow();
 
-  if (summary.isCurrentlyOnBreak) {
-    return {
-      success: false,
-      message: 'Anda sedang dalam sesi istirahat aktif! Selesaikan sesi ini terlebih dahulu.',
-    };
-  }
-
-  if (summary.breakCount >= 2) {
-    return {
-      success: false,
-      message: 'Batas istirahat harian tercapai! Anda sudah mengambil jatah 2x istirahat (Sesi 1 dan Sesi 2) hari ini.',
-    };
-  }
-
-  if (summary.remainingMinutes <= 0) {
-    return {
-      success: false,
-      message: 'Total kuota istirahat Anda untuk hari ini (120 menit) telah habis.',
-    };
+  if (summary.isCurrentlyOnBreak && summary.activeSession) {
+    // If the active session is older than 2 hours, auto-recover so staff is never stuck
+    if (now - summary.activeSession.startTime > 2 * 3600 * 1000) {
+      endStaffBreak(employee.nip, summary.activeSession.id, employee.name);
+    } else {
+      return {
+        success: false,
+        message: 'Anda sedang dalam sesi istirahat aktif! Selesaikan sesi ini terlebih dahulu.',
+      };
+    }
   }
 
   const effectiveJobTitle =
@@ -1029,7 +1104,6 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
 
   const currentSessionNumber = summary.breakCount + 1;
   const canonicalId = 'brk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-  const now = getSynchronizedNow();
 
   const newSession: BreakSession = {
     id: canonicalId,
@@ -1051,6 +1125,16 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
   const all = getAllSessions();
   all.unshift(newSession);
   saveSessions(all);
+
+  // Broadcast STAFF_STARTED_BREAK immediately on same-device BroadcastChannel
+  syncChannel?.postMessage({
+    type: 'STAFF_STARTED_BREAK',
+    nip: employee.nip,
+    employeeName: employee.name,
+    sessionId: canonicalId,
+    session: newSession,
+    timestamp: now,
+  });
 
   // Sync with central server using canonical ID & master clock authority
   fetch('/api/sessions/start', {
@@ -1075,7 +1159,7 @@ export function startStaffBreak(employee: Employee): { success: boolean; message
     })
     .catch((err) => console.error('Failed to sync start session to server:', err));
 
-  const sessionLabel = currentSessionNumber === 1 ? 'Istirahat Pertama (Sesi 1)' : 'Istirahat Kedua (Sesi 2)';
+  const sessionLabel = getBreakSessionLabel(currentSessionNumber);
 
   return {
     success: true,
@@ -1093,9 +1177,25 @@ export function endStaffBreak(
   const all = getAllSessions();
   const cleanNip = String(nip).trim();
   const cleanName = employeeNameParam ? employeeNameParam.trim().toLowerCase() : '';
+  const now = getSynchronizedNow();
+  const recentlyCheckedOutStaff = getRecentlyCheckedOutMap();
 
-  // Find all active sessions for this employee
-  const matchingIndices: number[] = [];
+  // Register in recentlyCheckedOut immediately so no concurrent poll revives this break
+  if (cleanNip) {
+    recentlyCheckedOutStaff.set(cleanNip, now);
+    const parsedNum = parseInt(cleanNip, 10);
+    if (!isNaN(parsedNum)) recentlyCheckedOutStaff.set(String(parsedNum), now);
+  }
+  if (cleanName) {
+    recentlyCheckedOutStaff.set(cleanName, now);
+  }
+
+  // Find all active sessions for this employee and end them immediately
+  let firstDuration = 0;
+  let employeeName = employeeNameParam || '';
+  let sessionId = sessionIdParam || '';
+  let updatedAny = false;
+
   all.forEach((s, idx) => {
     const matchesId = sessionIdParam && s.id === sessionIdParam;
     const matchesNip =
@@ -1105,31 +1205,22 @@ export function endStaffBreak(
     const matchesName = cleanName && s.employeeName && s.employeeName.trim().toLowerCase() === cleanName;
 
     if ((matchesId || matchesNip || matchesName) && s.endTime === null) {
-      matchingIndices.push(idx);
-    }
-  });
-
-  const now = getSynchronizedNow();
-  let firstDuration = 0;
-  let employeeName = employeeNameParam || '';
-  let sessionId = sessionIdParam || '';
-
-  if (matchingIndices.length > 0) {
-    matchingIndices.forEach((idx) => {
-      const session = all[idx];
-      if (!employeeName) employeeName = session.employeeName;
-      if (!sessionId) sessionId = session.id;
-      const durationMs = now - session.startTime;
+      if (!employeeName) employeeName = s.employeeName;
+      if (!sessionId) sessionId = s.id;
+      const durationMs = now - s.startTime;
       const durationMinutes = Math.max(1, Math.round(durationMs / (1000 * 60)));
       if (!firstDuration) firstDuration = durationMinutes;
 
       all[idx] = {
-        ...session,
+        ...s,
         endTime: now,
         durationMinutes,
       };
-    });
+      updatedAny = true;
+    }
+  });
 
+  if (updatedAny) {
     saveSessions(all);
   }
 

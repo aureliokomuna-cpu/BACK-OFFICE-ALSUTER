@@ -33,8 +33,8 @@ function cleanStaleSessions(sessions: BreakSession[]): BreakSession[] {
   return sessions
     .filter((s) => s.startTime > sevenDaysAgo || s.endTime === null)
     .map((s) => {
-      // Auto-close breaks exceeding 50 minutes (standard break is 40m, prevent ghost active sessions)
-      if (s.endTime === null && now - s.startTime > 50 * 60 * 1000) {
+      // Only auto-close truly abandoned breaks exceeding 16 hours (e.g. forgot checkout across overnight shifts)
+      if (s.endTime === null && now - s.startTime > 16 * 3600 * 1000) {
         return {
           ...s,
           endTime: s.startTime + 40 * 60 * 1000,
@@ -726,22 +726,23 @@ async function startServer() {
     // Check if already currently on break
     const active = staffSessionsToday.find((s) => s.endTime === null);
     if (active) {
-      return res.json({
-        success: true,
-        message: 'Anda sedang dalam sesi istirahat aktif.',
-        session: active,
-        serverTime: Date.now(),
-      });
+      const serverNow = Date.now();
+      // If the existing active session is older than 2 hours, auto-close it so staff is not permanently locked out!
+      if (serverNow - active.startTime > 2 * 3600 * 1000) {
+        active.endTime = active.startTime + 40 * 60 * 1000;
+        active.durationMinutes = 40;
+      } else {
+        return res.json({
+          success: true,
+          message: 'Anda sedang dalam sesi istirahat aktif.',
+          session: active,
+          serverTime: Date.now(),
+        });
+      }
     }
 
     const completedToday = staffSessionsToday.filter((s) => s.endTime !== null);
-    if (completedToday.length >= 2) {
-      return res.status(400).json({
-        success: false,
-        message: 'Batas istirahat harian tercapai! Anda sudah mengambil jatah 2x istirahat hari ini.',
-      });
-    }
-
+    // Support 500+ daily breaks without hard rejection
     const currentSessionNumber = typeof sessionNumber === 'number' ? sessionNumber : completedToday.length + 1;
     const effectiveJobTitle =
       employee.jobTitle.toUpperCase() === 'SALES EXECUTIVE' ? 'SMT' : employee.jobTitle;
@@ -775,9 +776,54 @@ async function startServer() {
     };
 
     serverState.sessions.push(newSession);
+    serverState.lastUpdated = Date.now();
     saveState(serverState);
 
-    const sessionLabel = currentSessionNumber === 1 ? 'Istirahat Pertama (Sesi 1)' : 'Istirahat Kedua (Sesi 2)';
+    // Instant SSE broadcast for STAFF_STARTED_BREAK to all manager monitors and devices
+    const startEvent = JSON.stringify({
+      type: 'STAFF_STARTED_BREAK',
+      nip: employee.nip,
+      employeeName: employee.name,
+      sessionId: newSession.id,
+      session: newSession,
+      sessions: serverState.sessions,
+      lastUpdated: serverState.lastUpdated,
+      serverTime: Date.now(),
+      lastResetTime: serverState.lastResetTime || 0,
+    });
+    for (const client of sseClients) {
+      try {
+        client.write(`data: ${startEvent}\n\n`);
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+
+    if (serverMqttClient && serverMqttClient.connected) {
+      try {
+        serverMqttClient.publish(
+          SYNC_TOPIC,
+          JSON.stringify({
+            type: 'STAFF_STARTED_BREAK',
+            nip: employee.nip,
+            employeeName: employee.name,
+            sessionId: newSession.id,
+            session: newSession,
+            sessions: serverState.sessions,
+            updatedAt: serverState.lastUpdated,
+            senderId: 'server_backend',
+          }),
+          { retain: false, qos: 1 }
+        );
+      } catch {}
+    }
+
+    const sessionLabel = currentSessionNumber === 1
+      ? 'Istirahat Pertama (Sesi 1)'
+      : currentSessionNumber === 2
+      ? 'Istirahat Kedua (Sesi 2)'
+      : `Istirahat ke-${currentSessionNumber} (Sesi ${currentSessionNumber})`;
+
     res.json({
       success: true,
       message: `${sessionLabel} berhasil dimulai!`,

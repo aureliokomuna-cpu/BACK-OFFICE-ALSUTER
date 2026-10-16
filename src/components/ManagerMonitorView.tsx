@@ -150,13 +150,13 @@ export const ManagerMonitorView: React.FC<ManagerMonitorViewProps> = ({
               group40m.push(s);
             }
 
-            // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas, up to 120m)
-            // Periodic repeat reminder: calls at minute 41, and then repeats every 3 minutes if still overdue!
-            if (elapsedSec >= 41 * 60 && elapsedSec < 120 * 60) {
+            // 3. Audio 3: Lewat 40 menit (menit ke-41 ke atas)
+            // Periodic repeat reminder: calls at minute 41, and then repeats every 2.5 minutes if still overdue!
+            if (elapsedSec >= 41 * 60) {
               const lastOverdueTime = lastOverdueCallTimeRef.current.get(s.id) || 0;
               const hasNeverBeenCalledLocally = !localAnnouncedAlertsRef.current.has(`mgr_overdue_${s.id}`);
-              // Trigger immediately at minute 41 or repeat every 3 minutes (180,000ms)
-              if (hasNeverBeenCalledLocally || (now - lastOverdueTime >= 180000)) {
+              // Trigger immediately at minute 41 or repeat every 2.5 minutes (150,000ms)
+              if (hasNeverBeenCalledLocally || (now - lastOverdueTime >= 150000)) {
                 localAnnouncedAlertsRef.current.add(`mgr_overdue_${s.id}`);
                 lastOverdueCallTimeRef.current.set(s.id, now);
                 s.overduePlayed = true;

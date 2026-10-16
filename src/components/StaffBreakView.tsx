@@ -126,11 +126,10 @@ export const StaffBreakView: React.FC<StaffBreakViewProps> = ({
           onSessionChanged();
         }
 
-        // 3. Audio 3: Sudah lewat 40 menit (menit ke-41 ke atas, up to 120m)
+        // 3. Audio 3: Sudah lewat 40 menit (menit ke-41 ke atas)
         const warnOverdueKey = `staff_overdue_${current.activeSession.id}`;
         if (
           elapsedSec >= 41 * 60 &&
-          elapsedSec < 120 * 60 &&
           !current.activeSession.overduePlayed &&
           !localPlayedAlertsRef.current.has(warnOverdueKey)
         ) {

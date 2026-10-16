@@ -688,11 +688,19 @@ export async function speakIndonesian(
   rateMultiplier: number = 1.0,
   pitchMultiplier: number = 1.0
 ): Promise<void> {
-  if (!('speechSynthesis' in window)) {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return;
   }
 
-  window.speechSynthesis.cancel();
+  try {
+    window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+  } catch {}
+
+  await waitMs(60);
+
   const voice = await getBestIndonesianFemaleVoice();
 
   return new Promise((resolve) => {
@@ -731,7 +739,14 @@ export async function speakIndonesian(
       safeResolve();
     };
 
-    window.speechSynthesis.speak(utterance);
+    try {
+      window.speechSynthesis.speak(utterance);
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+    } catch {
+      safeResolve();
+    }
   });
 }
 
@@ -822,6 +837,7 @@ interface QueuedItem {
   nip?: string;
   sessionId?: string;
   employeeName?: string;
+  force?: boolean;
   execute: () => Promise<void>;
   resolve: () => void;
   reject: (err: unknown) => void;
@@ -859,9 +875,9 @@ export function isStaffRecentlyCheckedOut(nip?: string, name?: string): boolean 
     const cleanName = name.toLowerCase().trim();
     const t = recentlyCheckedOutStaff.get(cleanName);
     if (t && now - t < CHECKOUT_SUPPRESSION_TTL_MS) return true;
-    // Check partial matches
+    // Check exact matches only (not broad substring)
     for (const [k, time] of recentlyCheckedOutStaff.entries()) {
-      if (now - time < CHECKOUT_SUPPRESSION_TTL_MS && (k.includes(cleanName) || cleanName.includes(k))) {
+      if (now - time < CHECKOUT_SUPPRESSION_TTL_MS && k === cleanName) {
         return true;
       }
     }
@@ -1157,6 +1173,7 @@ export function playAudioGroup(
       nip: activeTargets[0]?.nip,
       sessionId: activeTargets[0]?.sessionId,
       employeeName: activeTargets[0]?.name,
+      force,
       execute: () => executeAudioGroup(category, item),
       resolve,
       reject,
@@ -1188,8 +1205,9 @@ async function processAudioQueue() {
   currentActiveAnnouncement = currentItem.label;
   emitQueueStatus();
 
-  // CRITICAL CHECK: Before speaking a single sound, verify if the staff members have already checked out!
-  if (activeSessionChecker) {
+  // CRITICAL CHECK: Before speaking an automatic sound, verify if the staff members have already checked out!
+  // If forced manually by manager, always play!
+  if (activeSessionChecker && !currentItem.force) {
     if (currentItem.targets && currentItem.targets.length > 0) {
       currentItem.targets = currentItem.targets.filter((t) =>
         activeSessionChecker!(t.nip, t.sessionId, t.name)
@@ -1261,9 +1279,11 @@ async function executeAudioGroup(
   category: 'audio1' | 'audio2' | 'audio3',
   itemOrTargets: QueuedItem | StaffAnnouncementTarget[]
 ): Promise<void> {
+  const isForced = !Array.isArray(itemOrTargets) && Boolean(itemOrTargets.force);
   const getActiveTargets = (): StaffAnnouncementTarget[] => {
     if (isCurrentItemCancelled) return [];
     const list = Array.isArray(itemOrTargets) ? itemOrTargets : itemOrTargets.targets;
+    if (isForced) return list;
     if (!activeSessionChecker) return list;
     return list.filter((t) => activeSessionChecker!(t.nip, t.sessionId, t.name));
   };
